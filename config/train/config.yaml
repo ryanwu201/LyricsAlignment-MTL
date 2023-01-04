@@ -1,0 +1,63 @@
+#disabled the output of hydra
+defaults:
+  - override hydra/job_logging: none
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+#Use CUDA (default: true)
+cuda: true
+
+#Use dummy train/val sets (default: false)
+dummy: true
+
+#Number of data loader worker threads (default: 1)
+num_workers: 1
+
+#Folder to write logs into
+log_dir: ../lyricsalignment_mtl_output_dali_test/tensorboard_logs
+
+#Dataset
+dataset:
+  name: dali
+  n_phone_class: 41
+  n_pitch_class: 47
+  phone_blank: 40
+  phones: [ 'AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY', 'F', 'G', 'HH', 'IH', 'IY', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P', 'R', 'S', 'SH', 'T', 'TH', 'UH', 'UW', 'V', 'W', 'Y', 'Z', 'ZH', ' ' ]
+  #Dataset path
+  dataset_dir: /home/ryan/dataset/DALIv2
+  #Where all the separated vocals are stored.
+  sepa_dir: /home/ryan/dataset/DALIv2/audio
+  #Dataset path
+  hdf_dir: /home/ryan/dataset/DALIv2/hdf1
+
+#Folder to write checkpoints into
+checkpoint_dir: ../lyricsalignment_mtl_output_dali_test/checkpoints
+
+#"baseline" or "MTL"
+model: baseline
+
+#Reload a previously trained model (whole task model)
+load_model: null
+
+#Learning rate (default: 1e-4)
+lr: 0.0001
+
+#Batch size
+batch_size: 16
+
+#Sampling rate
+sr: 22050
+
+#Input sample
+input_sample: 123904
+
+#num of cnn layers
+cnn_layers: 1
+
+#dimension of rnn layers
+rnn_dim: 256
+
+#weight of voc loss
+loss_w: 0.5

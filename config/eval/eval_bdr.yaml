@@ -1,0 +1,53 @@
+#Use CUDA (default: true)
+cuda: true
+
+#Number of data loader worker threads (default: 1)
+num_workers: 0
+
+#Number of feature channels per layer
+features: 24
+
+#Dataset path
+jamendo_dir: null
+
+#Where all the separated vocals of Jamendo are stored.
+sepa_dir: null
+
+#Dataset name
+dataset: jamendo
+
+n_phone_class: 41
+
+n_pitch_class: 47
+
+phone_blank: 40
+
+phones: [ 'AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY', 'F', 'G', 'HH', 'IH', 'IY', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P', 'R', 'S', 'SH', 'T', 'TH', 'UH', 'UW', 'V', 'W', 'Y', 'Z', 'ZH', ' ' ]
+
+#Dataset path
+hdf_dir: ./hdf/
+
+#prediction path
+pred_dir: null
+
+#Reload a previously trained acoustic model
+ac_model: null
+
+#Reload a previously trained boundary detection model
+bdr_model: null
+
+#"baseline" or "MTL"
+model: baseline
+
+#Sampling rate
+sr: 22050
+
+#RNN dimension
+rnn_dim: 256
+
+#Alignment unit: char or phone; Should match the model type.
+unit: phone
+
+#weight svd score
+alpha: 0.1
+

@@ -7,12 +7,6 @@ import string
 import warnings
 from g2p_en import G2p
 
-g2p = G2p()
-
-phone_dict = ['AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY', 'F', 'G', 'HH', 'IH', 'IY',
-             'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P', 'R', 'S', 'SH', 'T', 'TH', 'UH', 'UW', 'V', 'W', 'Y',
-             'Z', 'ZH', ' ']
-phone2int = {phone_dict[i]: i for i in range(len(phone_dict))}
 
 def my_collate(batch):
     audio, targets, seqs = zip(*batch)
@@ -21,12 +15,14 @@ def my_collate(batch):
     seqs = list(seqs)
     return audio, targets, seqs
 
+
 def worker_init_fn(worker_id):
     np.random.seed(np.random.get_state()[1][0] + worker_id)
 
-def find_separated_vocal(fileid):
 
+def find_separated_vocal(fileid):
     pass
+
 
 def load(path, sr=22050, mono=True, offset=0., duration=None):
     with warnings.catch_warnings():
@@ -34,9 +30,10 @@ def load(path, sr=22050, mono=True, offset=0., duration=None):
         y, curr_sr = librosa.load(path, sr=sr, mono=mono, res_type='kaiser_fast', offset=offset, duration=duration)
 
     if len(y.shape) == 1:
-        y = y[np.newaxis, :] # (channel, sample)
+        y = y[np.newaxis, :]  # (channel, sample)
 
     return y, curr_sr
+
 
 def load_lyrics(lyrics_file):
     from string import ascii_lowercase
@@ -85,10 +82,13 @@ def load_lyrics(lyrics_file):
 
     return full_lyrics, words_lines, idx, idx_line, raw_lines
 
+
 def write_wav(path, audio, sr):
     soundfile.write(path, audio.T, sr, "PCM_16")
 
+
 def gen_phone_gt(words, raw_lines):
+    g2p = G2p()
 
     # helper function
     def getsubidx(x, y):  # find y in x
@@ -96,6 +96,7 @@ def gen_phone_gt(words, raw_lines):
         for i in range(l1 - l2 + 1):
             if x[i:i + l2] == y:
                 return i
+
     words_p = []
     lyrics_p = []
     for word in words:
@@ -133,6 +134,7 @@ def gen_phone_gt(words, raw_lines):
 
     return lyrics_p, words_p, idx_in_full_p, idx_line_p
 
+
 class DataParallel(torch.nn.DataParallel):
     def __init__(self, module, device_ids=None, output_device=None, dim=0):
         super(DataParallel, self).__init__(module, device_ids, output_device, dim)
@@ -142,6 +144,7 @@ class DataParallel(torch.nn.DataParallel):
             return super().__getattr__(name)
         except AttributeError:
             return getattr(self.module, name)
+
 
 def save_model(model, optimizer, state, path):
     if isinstance(model, torch.nn.DataParallel):
@@ -153,6 +156,7 @@ def save_model(model, optimizer, state, path):
         'optimizer_state_dict': optimizer.state_dict(),
         'state': state,
     }, path)
+
 
 def load_model(model, path, cuda):
     if isinstance(model, torch.nn.DataParallel):
@@ -173,11 +177,13 @@ def load_model(model, path, cuda):
 
     return state
 
+
 def seed_torch(seed=0):
     # random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
+
 
 def move_data_to_device(x, device):
     if 'float' in str(x.dtype):
@@ -189,51 +195,51 @@ def move_data_to_device(x, device):
 
     return x.to(device)
 
-def alignment(song_pred, lyrics, idx):
+
+def alignment(song_pred, lyrics, idx, phone_blank, phone2int):
     audio_length, num_class = song_pred.shape
-    lyrics_int = phone2seq(lyrics)
+    lyrics_int = phone2seq(lyrics, phone2int,phone_blank)
     lyrics_length = len(lyrics_int)
 
-    s = np.zeros((audio_length, 2*lyrics_length+1)) - np.Inf
-    opt = np.zeros((audio_length, 2*lyrics_length+1))
+    s = np.zeros((audio_length, 2 * lyrics_length + 1)) - np.Inf
+    opt = np.zeros((audio_length, 2 * lyrics_length + 1))
 
-    blank = 40
+    blank = phone_blank
 
     # init
     s[0][0] = song_pred[0][blank]
     # insert eps
     for i in np.arange(1, audio_length):
-        s[i][0] = s[i-1][0] + song_pred[i][blank]
+        s[i][0] = s[i - 1][0] + song_pred[i][blank]
 
     for j in np.arange(lyrics_length):
         if j == 0:
-            s[j+1][2*j+1] = s[j][2*j] + song_pred[j+1][lyrics_int[j]]
-            opt[j+1][2*j+1] = 1  # 45 degree
+            s[j + 1][2 * j + 1] = s[j][2 * j] + song_pred[j + 1][lyrics_int[j]]
+            opt[j + 1][2 * j + 1] = 1  # 45 degree
         else:
-            s[j+1][2*j+1] = s[j][2*j-1] + song_pred[j+1][lyrics_int[j]]
-            opt[j+1][2*j+1] = 2 # 28 degree
+            s[j + 1][2 * j + 1] = s[j][2 * j - 1] + song_pred[j + 1][lyrics_int[j]]
+            opt[j + 1][2 * j + 1] = 2  # 28 degree
 
-        s[j+2][2*j+2] = s[j+1][2*j+1] + song_pred[j+2][blank]
-        opt[j+2][2*j+2] = 1  # 45 degree
-
+        s[j + 2][2 * j + 2] = s[j + 1][2 * j + 1] + song_pred[j + 2][blank]
+        opt[j + 2][2 * j + 2] = 1  # 45 degree
 
     for audio_pos in np.arange(2, audio_length):
 
-        for ch_pos in np.arange(1, 2*lyrics_length+1):
+        for ch_pos in np.arange(1, 2 * lyrics_length + 1):
 
-            if ch_pos % 2 == 1 and (ch_pos+1)/2 >= audio_pos:
+            if ch_pos % 2 == 1 and (ch_pos + 1) / 2 >= audio_pos:
                 break
-            if ch_pos % 2 == 0 and ch_pos/2 + 1 >= audio_pos:
+            if ch_pos % 2 == 0 and ch_pos / 2 + 1 >= audio_pos:
                 break
 
-            if ch_pos % 2 == 1: # ch
-                ch_idx = int((ch_pos-1)/2)
+            if ch_pos % 2 == 1:  # ch
+                ch_idx = int((ch_pos - 1) / 2)
                 # cur ch -> ch
-                a = s[audio_pos-1][ch_pos] + song_pred[audio_pos][lyrics_int[ch_idx]]
+                a = s[audio_pos - 1][ch_pos] + song_pred[audio_pos][lyrics_int[ch_idx]]
                 # last ch -> ch
-                b = s[audio_pos-1][ch_pos-2] + song_pred[audio_pos][lyrics_int[ch_idx]]
+                b = s[audio_pos - 1][ch_pos - 2] + song_pred[audio_pos][lyrics_int[ch_idx]]
                 # eps -> ch
-                c = s[audio_pos-1][ch_pos-1] + song_pred[audio_pos][lyrics_int[ch_idx]]
+                c = s[audio_pos - 1][ch_pos - 1] + song_pred[audio_pos][lyrics_int[ch_idx]]
                 if a > b and a > c:
                     s[audio_pos][ch_pos] = a
                     opt[audio_pos][ch_pos] = 0
@@ -244,11 +250,11 @@ def alignment(song_pred, lyrics, idx):
                     s[audio_pos][ch_pos] = c
                     opt[audio_pos][ch_pos] = 1
 
-            if ch_pos % 2 == 0: # eps
+            if ch_pos % 2 == 0:  # eps
                 # cur ch -> ch
-                a = s[audio_pos-1][ch_pos] + song_pred[audio_pos][blank]
+                a = s[audio_pos - 1][ch_pos] + song_pred[audio_pos][blank]
                 # eps -> ch
-                c = s[audio_pos-1][ch_pos-1] + song_pred[audio_pos][blank]
+                c = s[audio_pos - 1][ch_pos - 1] + song_pred[audio_pos][blank]
                 if a > c:
                     s[audio_pos][ch_pos] = a
                     opt[audio_pos][ch_pos] = 0
@@ -256,12 +262,12 @@ def alignment(song_pred, lyrics, idx):
                     s[audio_pos][ch_pos] = c
                     opt[audio_pos][ch_pos] = 1
 
-    score = s[audio_length-1][2*lyrics_length]
+    score = s[audio_length - 1][2 * lyrics_length]
 
     # retrive optimal path
     path = []
-    x = audio_length-1
-    y = 2*lyrics_length
+    x = audio_length - 1
+    y = 2 * lyrics_length
     path.append([x, y])
     while x > 0 or y > 0:
         if opt[x][y] == 1:
@@ -282,10 +288,10 @@ def alignment(song_pred, lyrics, idx):
     while word_i < len(idx):
         # e.g. "happy day"
         # find the first time "h" appears
-        if path[path_i][1] == 2*idx[word_i][0]+1:
+        if path[path_i][1] == 2 * idx[word_i][0] + 1:
             st = path[path_i][0]
             # find the first time " " appears after "h"
-            while  path_i < len(path)-1 and (path[path_i][1] != 2*idx[word_i][1]+1):
+            while path_i < len(path) - 1 and (path[path_i][1] != 2 * idx[word_i][1] + 1):
                 path_i += 1
             ed = path[path_i][0]
             # append
@@ -298,52 +304,53 @@ def alignment(song_pred, lyrics, idx):
 
     return word_align, score
 
-def alignment_bdr(song_pred, lyrics, idx, bdr_pred, line_start):
+
+def alignment_bdr(song_pred, lyrics, idx, bdr_pred, line_start, phone_blank, phone2int):
     audio_length, num_class = song_pred.shape
-    lyrics_int = phone2seq(lyrics)
+    lyrics_int = phone2seq(lyrics, phone2int,phone_blank)
     lyrics_length = len(lyrics_int)
 
-    s = np.zeros((audio_length, 2*lyrics_length+1)) - np.Inf
-    opt = np.zeros((audio_length, 2*lyrics_length+1))
+    s = np.zeros((audio_length, 2 * lyrics_length + 1)) - np.Inf
+    opt = np.zeros((audio_length, 2 * lyrics_length + 1))
 
-    blank = 40
+    blank = phone_blank
 
     # init
     s[0][0] = song_pred[0][blank]
     # insert eps
     for i in np.arange(1, audio_length):
-        s[i][0] = s[i-1][0] + song_pred[i][blank]
+        s[i][0] = s[i - 1][0] + song_pred[i][blank]
 
     for j in np.arange(lyrics_length):
         if j == 0:
-            s[j+1][2*j+1] = s[j][2*j] + song_pred[j+1][lyrics_int[j]]
-            opt[j+1][2*j+1] = 1  # 45 degree
+            s[j + 1][2 * j + 1] = s[j][2 * j] + song_pred[j + 1][lyrics_int[j]]
+            opt[j + 1][2 * j + 1] = 1  # 45 degree
         else:
-            s[j+1][2*j+1] = s[j][2*j-1] + song_pred[j+1][lyrics_int[j]]
-            opt[j+1][2*j+1] = 2 # 28 degree
+            s[j + 1][2 * j + 1] = s[j][2 * j - 1] + song_pred[j + 1][lyrics_int[j]]
+            opt[j + 1][2 * j + 1] = 2  # 28 degree
         if j in line_start:
-            s[j + 1][2 * j + 1] += bdr_pred[j+1]
+            s[j + 1][2 * j + 1] += bdr_pred[j + 1]
 
-        s[j+2][2*j+2] = s[j+1][2*j+1] + song_pred[j+2][blank]
-        opt[j+2][2*j+2] = 1  # 45 degree
+        s[j + 2][2 * j + 2] = s[j + 1][2 * j + 1] + song_pred[j + 2][blank]
+        opt[j + 2][2 * j + 2] = 1  # 45 degree
 
     for audio_pos in np.arange(2, audio_length):
 
-        for ch_pos in np.arange(1, 2*lyrics_length+1):
+        for ch_pos in np.arange(1, 2 * lyrics_length + 1):
 
-            if ch_pos % 2 == 1 and (ch_pos+1)/2 >= audio_pos:
+            if ch_pos % 2 == 1 and (ch_pos + 1) / 2 >= audio_pos:
                 break
-            if ch_pos % 2 == 0 and ch_pos/2 + 1 >= audio_pos:
+            if ch_pos % 2 == 0 and ch_pos / 2 + 1 >= audio_pos:
                 break
 
-            if ch_pos % 2 == 1: # ch
-                ch_idx = int((ch_pos-1)/2)
+            if ch_pos % 2 == 1:  # ch
+                ch_idx = int((ch_pos - 1) / 2)
                 # cur ch -> ch
-                a = s[audio_pos-1][ch_pos] + song_pred[audio_pos][lyrics_int[ch_idx]]
+                a = s[audio_pos - 1][ch_pos] + song_pred[audio_pos][lyrics_int[ch_idx]]
                 # last ch -> ch
-                b = s[audio_pos-1][ch_pos-2] + song_pred[audio_pos][lyrics_int[ch_idx]]
+                b = s[audio_pos - 1][ch_pos - 2] + song_pred[audio_pos][lyrics_int[ch_idx]]
                 # eps -> ch
-                c = s[audio_pos-1][ch_pos-1] + song_pred[audio_pos][lyrics_int[ch_idx]]
+                c = s[audio_pos - 1][ch_pos - 1] + song_pred[audio_pos][lyrics_int[ch_idx]]
                 if a > b and a > c:
                     s[audio_pos][ch_pos] = a
                     opt[audio_pos][ch_pos] = 0
@@ -357,11 +364,11 @@ def alignment_bdr(song_pred, lyrics, idx, bdr_pred, line_start):
                 if ch_idx in line_start:
                     s[audio_pos][ch_pos] += bdr_pred[audio_pos]
 
-            if ch_pos % 2 == 0: # eps
+            if ch_pos % 2 == 0:  # eps
                 # cur ch -> ch
-                a = s[audio_pos-1][ch_pos] + song_pred[audio_pos][blank]
+                a = s[audio_pos - 1][ch_pos] + song_pred[audio_pos][blank]
                 # eps -> ch
-                c = s[audio_pos-1][ch_pos-1] + song_pred[audio_pos][blank]
+                c = s[audio_pos - 1][ch_pos - 1] + song_pred[audio_pos][blank]
                 if a > c:
                     s[audio_pos][ch_pos] = a
                     opt[audio_pos][ch_pos] = 0
@@ -369,12 +376,12 @@ def alignment_bdr(song_pred, lyrics, idx, bdr_pred, line_start):
                     s[audio_pos][ch_pos] = c
                     opt[audio_pos][ch_pos] = 1
 
-    score = s[audio_length-1][2*lyrics_length]
+    score = s[audio_length - 1][2 * lyrics_length]
 
     # retrive optimal path
     path = []
-    x = audio_length-1
-    y = 2*lyrics_length
+    x = audio_length - 1
+    y = 2 * lyrics_length
     path.append([x, y])
     while x > 0 or y > 0:
         if opt[x][y] == 1:
@@ -395,10 +402,10 @@ def alignment_bdr(song_pred, lyrics, idx, bdr_pred, line_start):
     while word_i < len(idx):
         # e.g. "happy day"
         # find the first time "h" appears
-        if path[path_i][1] == 2*idx[word_i][0]+1:
+        if path[path_i][1] == 2 * idx[word_i][0] + 1:
             st = path[path_i][0]
             # find the first time " " appears after "h"
-            while  path_i < len(path)-1 and (path[path_i][1] != 2*idx[word_i][1]+1):
+            while path_i < len(path) - 1 and (path[path_i][1] != 2 * idx[word_i][1] + 1):
                 path_i += 1
             ed = path[path_i][0]
             # append
@@ -411,21 +418,24 @@ def alignment_bdr(song_pred, lyrics, idx, bdr_pred, line_start):
 
     return word_align, score
 
-def phone2seq(text):
+
+def phone2seq(text, phone2int,phone_blank):
     seq = []
     for c in text:
-        if c in phone_dict:
+        if c in phone2int.keys():
             idx = phone2int[c]
         else:
             # print(c) # unknown
-            idx = 40
+            idx = phone_blank
         seq.append(idx)
     return np.array(seq)
+
 
 def ToolFreq2Midi(fInHz, fA4InHz=440):
     '''
     source: https://www.audiocontentanalysis.org/code/helper-functions/frequency-to-midi-pitch-conversion-2/
     '''
+
     def convert_freq2midi_scalar(f, fA4InHz):
 
         if f <= 0:
@@ -443,8 +453,8 @@ def ToolFreq2Midi(fInHz, fA4InHz=440):
 
     return (midi)
 
-def notes_to_pc(notes, resolution, total_length):
 
+def notes_to_pc(notes, resolution, total_length):
     pc = np.full(shape=(total_length,), fill_value=46, dtype=np.short)
 
     for i in np.arange(len(notes[0])):
@@ -459,8 +469,8 @@ def notes_to_pc(notes, resolution, total_length):
 
     return pc
 
-def voc_to_contour(times, resolution, total_length, smoothing=False):
 
+def voc_to_contour(times, resolution, total_length, smoothing=False):
     contour = np.full(shape=(total_length,), fill_value=0, dtype=np.short)
 
     for i in np.arange(len(times)):

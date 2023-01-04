@@ -10,10 +10,6 @@ import logging
 import DALI as dali_code
 from utils import load, load_lyrics, gen_phone_gt, ToolFreq2Midi
 
-phone_dict = ['AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY', 'F', 'G', 'HH', 'IH', 'IY',
-             'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P', 'R', 'S', 'SH', 'T', 'TH', 'UH', 'UW', 'V', 'W', 'Y',
-             'Z', 'ZH', ' ']
-phone2int = {phone_dict[i]: i for i in range(len(phone_dict))}
 
 def getDALI(database_path, vocal_path, lang, genre):
     dali_annot_path = os.path.join(database_path, 'annot_tismir')
@@ -43,7 +39,8 @@ def getDALI(database_path, vocal_path, lang, genre):
 
                 song = {"id": file[:-4], "words": [], \
                         "path": os.path.join(dali_audio_path, file), \
-                        "vocal_path": os.path.join(vocal_path, file[:-4] + "_vocals.mp3")}
+                        "vocal_path": os.path.join(vocal_path, file[:-4] + ".mp3")}
+                        # "vocal_path": os.path.join(vocal_path, file[:-4] + "_vocals.mp3")}
 
                 # notes
                 notes_raw = entry["notes"]
@@ -57,7 +54,7 @@ def getDALI(database_path, vocal_path, lang, genre):
                 for sample in samples:
                     sample["duration"] = sample["time"][1] - sample["time"][0]
 
-                    if sample["duration"] > 10.22: # remove words which are too long
+                    if sample["duration"] > 10.22:  # remove words which are too long
                         # print(sample)
                         discard_line_num += 1
 
@@ -96,13 +93,16 @@ def getDALI(database_path, vocal_path, lang, genre):
                 pass
 
     logging.debug("Scanning {} songs.".format(len(subset)))
-    logging.debug("Total line num: {} Discarded line num: {}".format(total_line_num,  discard_line_num))
+    logging.debug("Total line num: {} Discarded line num: {}".format(total_line_num, discard_line_num))
 
     return np.array(subset, dtype=object)
 
-def get_dali_folds(database_path, vocal_path, lang="english", genre=None):
-    dataset = getDALI(database_path, vocal_path, lang, genre)
 
+def get_dali_folds(database_path, vocal_path, lang="english", genre=None, dataset_name='dali'):
+    if dataset_name == 'dali':
+        dataset = getDALI(database_path, vocal_path, lang, genre)
+    else:
+         raise ValueError("Invalid dataset_name.")
     total_len = len(dataset)
     train_len = np.int(0.8 * total_len)
 
@@ -113,12 +113,17 @@ def get_dali_folds(database_path, vocal_path, lang="english", genre=None):
     train_list = train_list[:20]
     val_list = val_list[:20]
 
-    logging.debug("First training song: " + str(train_list[0]["id"]) + " " + str(len(train_list[0]["words"])) + " lines")
+    logging.debug(
+        "First training song: " + str(train_list[0]["id"]) + " " + str(len(train_list[0]["words"])) + " lines")
     logging.debug("train_list {} songs val_list {} songs".format(len(train_list), len(val_list)))
-    return {"train" : train_list, "val" : val_list}
+    return {"train": train_list, "val": val_list}
+
 
 class LyricsAlignDataset(Dataset):
-    def __init__(self, dataset, partition, sr, input_sample, hdf_dir, in_memory=False, dummy=False):
+    def __init__(self, dataset, partition, sr, input_sample, hdf_dir, in_memory=False, dummy=False,
+                 phones=['AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY', 'F', 'G', 'HH',
+                         'IH', 'IY', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P', 'R', 'S', 'SH', 'T', 'TH',
+                         'UH', 'UW', 'V', 'W', 'Y', 'Z', 'ZH', ' ']):
         '''
 
         :param dataset:     a list of song with line level annotation
@@ -131,6 +136,8 @@ class LyricsAlignDataset(Dataset):
         '''
 
         super(LyricsAlignDataset, self).__init__()
+
+        self.phone2int = {phones[i]: i for i in range(len(phones))}
 
         self.hdf_dataset = None
         os.makedirs(hdf_dir, exist_ok=True)
@@ -215,7 +222,7 @@ class LyricsAlignDataset(Dataset):
             lengths = [f[str(song_idx)].attrs["input_length"] for song_idx in range(len(f))]
 
             # Subtract input_size from lengths and divide by hop size to determine number of starting positions
-            lengths = [( (l - input_sample) // self.hop) + 1 for l in lengths]
+            lengths = [((l - input_sample) // self.hop) + 1 for l in lengths]
 
         self.start_pos = SortedList(np.cumsum(lengths))
         self.length = self.start_pos[-1]
@@ -269,13 +276,14 @@ class LyricsAlignDataset(Dataset):
             words_start_end_pos = self.hdf_dataset[str(song_idx)]["times"][:]
             try:
                 first_word_to_include = next(x for x, val in enumerate(list(words_start_end_pos[:, 0]))
-                                             if val > start_pos/self.sr)
+                                             if val > start_pos / self.sr)
             except StopIteration:
                 first_word_to_include = np.Inf
 
             try:
-                last_word_to_include = annot_num - 1 - next(x for x, val in enumerate(reversed(list(words_start_end_pos[:, 1])))
-                                             if val < end_pos/self.sr)
+                last_word_to_include = annot_num - 1 - next(
+                    x for x, val in enumerate(reversed(list(words_start_end_pos[:, 1])))
+                    if val < end_pos / self.sr)
             except StopIteration:
                 last_word_to_include = -np.Inf
 
@@ -288,19 +296,19 @@ class LyricsAlignDataset(Dataset):
             targets = ""
             phonemes_list = []
             notes = [np.empty(shape=(0, 1), dtype=np.short), np.empty(shape=(0, 2))]
-            if first_word_to_include - 1 == last_word_to_include + 1: # the word covers the whole window
+            if first_word_to_include - 1 == last_word_to_include + 1:  # the word covers the whole window
                 # invalid sample, skip
                 targets = None
                 index = np.random.randint(self.length)
                 continue
-            if first_word_to_include <= last_word_to_include: # the window covers word[first:last+1]
+            if first_word_to_include <= last_word_to_include:  # the window covers word[first:last+1]
                 # build lyrics target
-                lyrics = self.hdf_dataset[str(song_idx)]["lyrics"][first_word_to_include:last_word_to_include+1]
+                lyrics = self.hdf_dataset[str(song_idx)]["lyrics"][first_word_to_include:last_word_to_include + 1]
                 lyrics_list = [s[0].decode() for s in list(lyrics)]
                 targets = " ".join(lyrics_list)
                 targets = " ".join(targets.split())
 
-                phonemes = self.hdf_dataset[str(song_idx)]["phonemes"][first_word_to_include:last_word_to_include+1]
+                phonemes = self.hdf_dataset[str(song_idx)]["phonemes"][first_word_to_include:last_word_to_include + 1]
                 phonemes_list = self.convert_phone_list(phonemes)
 
             if first_note_to_include <= last_note_to_include:  # the window overlaps or covers note[first:last+1]
@@ -333,14 +341,14 @@ class LyricsAlignDataset(Dataset):
                 elif c == " ":
                     idx = 27
                 else:
-                    continue # remove unknown characters
+                    continue  # remove unknown characters
             seq.append(idx)
         return np.array(seq)
 
     def phone2seq(self, text):
         seq = []
         for c in text:
-            idx = phone2int[c]
+            idx = self.phone2int[c]
             seq.append(idx)
         return np.array(seq)
 
@@ -357,16 +365,22 @@ class LyricsAlignDataset(Dataset):
     def __len__(self):
         return self.length
 
+
 class JamendoLyricsDataset(Dataset):
-    def __init__(self, sr, hdf_dir, dataset, jamendo_dir, audio_dir, in_memory=False, unit='phone'):
+    def __init__(self, sr, hdf_dir, dataset, jamendo_dir, audio_dir, in_memory=False, unit='phone',
+                 phones=['AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY', 'F', 'G', 'HH',
+                         'IH', 'IY', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P', 'R', 'S', 'SH', 'T', 'TH',
+                         'UH', 'UW', 'V', 'W', 'Y', 'Z', 'ZH', ' ']):
         super(JamendoLyricsDataset, self).__init__()
+        self.phones = phones
+        self.phone2int = {phones[i]: i for i in range(len(phones))}
         self.hdf_dataset = None
         os.makedirs(hdf_dir, exist_ok=True)
         self.hdf_file = os.path.join(hdf_dir, dataset + ".hdf5")
 
         self.sr = sr
         self.in_memory = in_memory
-        self.unit=unit
+        self.unit = unit
 
         lyrics_dir = os.path.join(jamendo_dir, 'lyrics')
         self.audio_list = [file for file in os.listdir(os.path.join(jamendo_dir, 'mp3')) if file.endswith('.mp3')]
@@ -382,11 +396,11 @@ class JamendoLyricsDataset(Dataset):
 
                 print("Adding audio files to dataset (preprocessing)...")
                 for idx, audio_name in enumerate(tqdm(self.audio_list)):
-
                     # load audio
                     y, _ = load(os.path.join(audio_dir, audio_name[:-4] + "_vocals.mp3"), sr=self.sr, mono=True)
 
-                    lyrics, words, idx_in_full, idx_line, raw_lines = load_lyrics(os.path.join(lyrics_dir, audio_name[:-4]))
+                    lyrics, words, idx_in_full, idx_line, raw_lines = load_lyrics(
+                        os.path.join(lyrics_dir, audio_name[:-4]))
                     lyrics_p, words_p, idx_in_full_p, idx_line_p = gen_phone_gt(words, raw_lines)
 
                     print(audio_name)
@@ -417,7 +431,7 @@ class JamendoLyricsDataset(Dataset):
                     "Tried to load existing HDF file, but sampling rate is not as expected.")
 
         with h5py.File(self.hdf_file, "r") as f:
-            self.length = len(f) # number of songs
+            self.length = len(f)  # number of songs
 
     def __getitem__(self, index):
 
@@ -431,12 +445,12 @@ class JamendoLyricsDataset(Dataset):
         # read audio, name, and lyrics
         audio = self.hdf_dataset[str(index)]["inputs"][0, :].astype(np.float32)
         audio_name = self.hdf_dataset[str(index)].attrs["audio_name"]
-        if self.unit == 'phone': # load phonemes
+        if self.unit == 'phone':  # load phonemes
             lyrics = self.hdf_dataset[str(index)]["lyrics_p"][:, 0]
             lyrics = [l.decode() for l in lyrics]
             word_idx = self.hdf_dataset[str(index)]["idx_p"]
             line_idx = self.hdf_dataset[str(index)]["idx_line_p"][:]
-        else: # load characters
+        else:  # load characters
             lyrics = self.hdf_dataset[str(index)]["lyrics"][0, 0].decode()
             word_idx = self.hdf_dataset[str(index)]["idx"]
             line_idx = None

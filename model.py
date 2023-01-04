@@ -9,13 +9,14 @@ from utils import notes_to_pc
 # following FFT parameters are designed for a 22.5k sampling rate
 sr = 22050
 n_fft = 512
-resolution = 256/22050*3
+resolution = 256 / 22050 * 3
 
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     train_audio_transforms = nn.Sequential(
         torchaudio.transforms.MelSpectrogram(sample_rate=sr, n_mels=128, n_fft=n_fft),
     )
+
 
 def data_processing(data):
     spectrograms = []
@@ -26,7 +27,7 @@ def data_processing(data):
     for (waveform, _, _, phone, notes) in data:
         waveform = torch.Tensor(waveform)
         # convert to Mel
-        spec = train_audio_transforms(waveform).squeeze(0).transpose(0, 1) # time x n_mels
+        spec = train_audio_transforms(waveform).squeeze(0).transpose(0, 1)  # time x n_mels
         spectrograms.append(spec)
 
         # get phoneme list (mapped to integers)
@@ -38,13 +39,14 @@ def data_processing(data):
         pc = notes_to_pc(notes, resolution, spec.shape[0] // 3)
         pcs.append(pc)
 
-        input_lengths.append(spec.shape[0]//3)
+        input_lengths.append(spec.shape[0] // 3)
         phone_lengths.append(len(phone))
 
     spectrograms = nn.utils.rnn.pad_sequence(spectrograms, batch_first=True).unsqueeze(1).transpose(2, 3)
     phones = nn.utils.rnn.pad_sequence(phones, batch_first=True)
 
     return spectrograms, phones, input_lengths, phone_lengths, torch.LongTensor(pcs)
+
 
 class CNNLayerNorm(nn.Module):
     '''Layer normalization built for cnns input'''
@@ -104,6 +106,7 @@ class BidirectionalLSTM(nn.Module):
         x = self.dropout(x)
         return x
 
+
 class AcousticModel(nn.Module):
     '''
         The acoustic model: baseline and MTL share the same class,
@@ -160,22 +163,22 @@ class AcousticModel(nn.Module):
 
         return x
 
+
 class MultiTaskLossWrapper(nn.Module):
-    def __init__(self):
+    def __init__(self, phone_blank):
         super(MultiTaskLossWrapper, self).__init__()
 
-        self.criterion_lyrics = nn.CTCLoss(blank=40, zero_infinity=True)
+        self.criterion_lyrics = nn.CTCLoss(blank=phone_blank, zero_infinity=True)
         self.criterion_melody = nn.CrossEntropyLoss()
 
     def forward(self, mat3d, lyrics_gt, melody_gt):
+        n_batch, n_frame, n_ch, n_p = mat3d.shape  # (batch, time, phone, pitch)
 
-        n_batch, n_frame, n_ch, n_p = mat3d.shape # (batch, time, phone, pitch)
-
-        y_lyrics = torch.sum(mat3d, dim=3) # (batch, time, n_ch)
-        y_melody = torch.sum(mat3d, dim=2) # (batch, time, n_p)
+        y_lyrics = torch.sum(mat3d, dim=3)  # (batch, time, n_ch)
+        y_melody = torch.sum(mat3d, dim=2)  # (batch, time, n_p)
 
         y_lyrics = F.log_softmax(y_lyrics, dim=2)
-        y_lyrics = y_lyrics.transpose(0, 1) # (time, batch, n_ch) reshape for CTC
+        y_lyrics = y_lyrics.transpose(0, 1)  # (time, batch, n_ch) reshape for CTC
         labels, input_lengths, label_lengths = lyrics_gt
         loss_lyrics = self.criterion_lyrics(y_lyrics, labels, input_lengths, label_lengths)
 
@@ -204,7 +207,7 @@ class BoundaryDetection(nn.Module):
         ])
 
         self.maxpooling = nn.MaxPool2d(kernel_size=(2, 3))
-        self.fully_connected = nn.Linear(n_feats * 64, rnn_dim) # add a linear layer
+        self.fully_connected = nn.Linear(n_feats * 64, rnn_dim)  # add a linear layer
 
         self.bilstm_layers = nn.Sequential(
             BidirectionalLSTM(rnn_dim=rnn_dim, hidden_size=rnn_dim, dropout=dropout, batch_first=True),

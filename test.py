@@ -54,7 +54,7 @@ def predict_align(args, model, test_data, device, model_type):
             song_pred = np.log(np.exp(song_pred) + P_noise)
 
             # dynamic programming alignment
-            word_align, score = utils.alignment(song_pred, words, idx)
+            word_align, score = utils.alignment(song_pred, words, idx,args.phone_blank,test_data.phone2int)
             print("\t{}:\t{}".format(audio_name, score))
 
             # write
@@ -257,7 +257,7 @@ def predict_w_bdr(args, ac_model, bdr_model, test_data, device, alpha, model_typ
             song_pred = np.log(np.exp(song_pred) + P_noise)
 
             # dynamic programming alignment with boundary information
-            word_align, score = utils.alignment_bdr(song_pred, words, idx, bdr_outputs, line_start)
+            word_align, score = utils.alignment_bdr(song_pred, words, idx, bdr_outputs, line_start,args.phone_blank,test_data.phone2int)
             print("\t{}:\t{}".format(audio_name, score))
 
             # write
