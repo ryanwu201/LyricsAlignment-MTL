@@ -43,6 +43,7 @@ def load_lyrics(lyrics_file):
     d["'"] = 26
     d[" "] = 27
     d["~"] = 28
+    d["_"] = 29
 
     # process raw
     with open(lyrics_file + '.raw.txt', 'r') as f:

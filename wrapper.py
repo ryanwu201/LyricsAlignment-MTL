@@ -156,6 +156,7 @@ def preprocess_lyrics(lyrics_file, word_file=None, lang='english'):
     d["'"] = 26
     d[" "] = 27
     d["~"] = 28
+    d["_"] = 29
 
     # process raw
     with open(lyrics_file, 'r') as f:
