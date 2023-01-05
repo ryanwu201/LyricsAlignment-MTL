@@ -11,11 +11,12 @@ from tqdm import tqdm
 
 from data import get_dali_folds, LyricsAlignDataset
 from test import validate
-from utils import worker_init_fn, load_model
+from utils import worker_init_fn, load_model, LoggerFileWrapper, show_table
 
 from model import AcousticModel, data_processing, MultiTaskLossWrapper
 import hydra
 from omegaconf import DictConfig
+import sys
 
 
 def train(model, device, train_loader, criterion, optimizer, batch_size, model_type, loss_w=0.1):
@@ -96,9 +97,13 @@ def train(model, device, train_loader, criterion, optimizer, batch_size, model_t
         return train_loss / data_len, train_loss / data_len, None
 
 
-@hydra.main(version_base=None, config_path="config/train", config_name="config")
+@hydra.main(version_base=None, config_path="config/train", config_name="csd_config")
 def main(cfg: DictConfig):
     args = cfg
+
+    # log
+    sys.stdout = LoggerFileWrapper(args.checkpoint_dir, args.model)
+    show_table(["Argument name", "Value"], args._content.items())
 
     if args.model == "baseline":
         n_class = args.dataset.n_phone_class
@@ -147,7 +152,8 @@ def main(cfg: DictConfig):
         dali_split = {"train": [], "val": []}  # h5 files already saved
     else:
         # call the DALI wrapper to get word-level annotations
-        dali_split = get_dali_folds(args.dataset.dataset_dir, args.dataset.sepa_dir, dataset_name=args.dataset.name)
+        dali_split = get_dali_folds(args.dataset.dataset_dir, args.dataset.sepa_dir, dataset_name=args.dataset.name,
+                                    dummy=args.dummy)
 
     val_data = LyricsAlignDataset(dali_split, "val", args.sr, hparams['input_sample'], args.dataset.hdf_dir,
                                   dummy=args.dummy, phones=args.dataset.phones)

@@ -16,24 +16,24 @@ dummy: false
 num_workers: 1
 
 #Folder to write logs into
-log_dir: ../lyricsalignment_mtl_output_dali_test/tensorboard_logs
+log_dir: ../lyricsalignment_mtl_output_csd/tensorboard_logs
 
 #Dataset
 dataset:
-  name: dali
-  n_phone_class: 41
+  name: csd
+  n_phone_class: 34
   n_pitch_class: 47
-  phone_blank: 40
-  phones: [ 'AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY', 'F', 'G', 'HH', 'IH', 'IY', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P', 'R', 'S', 'SH', 'T', 'TH', 'UH', 'UW', 'V', 'W', 'Y', 'Z', 'ZH', ' ' ]
+  phone_blank: 33
+  phones: [ 'u', 'k', 'kk', 'h', 'd', 'ch', 's', 'a', 'b', 'ui', 'r', 'tt', 'eu', 'n', 'ng', 'y', 'ss', 'i', 'eo', 'jj', 'w', 'oe', 'm', 'p', 'e', 'o', 'l', 'ae', 't', 'g', 'pp', 'j', ' ' ]
   #Dataset path
-  dataset_dir: /home/ryan/dataset/DALIv2
+  dataset_dir: /home/ryan/dataset/csd
   #Where all the separated vocals are stored.
-  sepa_dir: /home/ryan/dataset/DALIv2/audio
+  sepa_dir: /home/ryan/dataset/csd/audio
   #Dataset path
-  hdf_dir: /home/ryan/dataset/DALIv2/hdf
+  hdf_dir: /home/ryan/dataset/csd/hdf
 
 #Folder to write checkpoints into
-checkpoint_dir: ../lyricsalignment_mtl_output_dali_test/checkpoints
+checkpoint_dir: ../lyricsalignment_mtl_output_csd/checkpoints
 
 #"baseline" or "MTL"
 model: MTL
@@ -45,7 +45,7 @@ load_model: null
 lr: 0.0001
 
 #Batch size
-batch_size: 16
+batch_size: 64
 
 #Sampling rate
 sr: 22050

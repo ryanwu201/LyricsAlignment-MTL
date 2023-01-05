@@ -7,6 +7,8 @@ import string
 import warnings
 from g2p_en import G2p
 
+from prettytable import PrettyTable
+
 
 def my_collate(batch):
     audio, targets, seqs = zip(*batch)
@@ -87,8 +89,14 @@ def write_wav(path, audio, sr):
     soundfile.write(path, audio.T, sr, "PCM_16")
 
 
-def gen_phone_gt(words, raw_lines):
-    g2p = G2p()
+def gen_phone_gt(words, raw_lines, lang='english'):
+    g2p = None
+    if lang == 'english':
+        g2p = G2p()
+    elif lang == 'korean':
+        g2p = lambda word_: word_.split('_')
+    else:
+        raise ValueError('Unknown language.')
 
     # helper function
     def getsubidx(x, y):  # find y in x
@@ -198,7 +206,7 @@ def move_data_to_device(x, device):
 
 def alignment(song_pred, lyrics, idx, phone_blank, phone2int):
     audio_length, num_class = song_pred.shape
-    lyrics_int = phone2seq(lyrics, phone2int,phone_blank)
+    lyrics_int = phone2seq(lyrics, phone2int, phone_blank)
     lyrics_length = len(lyrics_int)
 
     s = np.zeros((audio_length, 2 * lyrics_length + 1)) - np.Inf
@@ -307,7 +315,7 @@ def alignment(song_pred, lyrics, idx, phone_blank, phone2int):
 
 def alignment_bdr(song_pred, lyrics, idx, bdr_pred, line_start, phone_blank, phone2int):
     audio_length, num_class = song_pred.shape
-    lyrics_int = phone2seq(lyrics, phone2int,phone_blank)
+    lyrics_int = phone2seq(lyrics, phone2int, phone_blank)
     lyrics_length = len(lyrics_int)
 
     s = np.zeros((audio_length, 2 * lyrics_length + 1)) - np.Inf
@@ -419,7 +427,7 @@ def alignment_bdr(song_pred, lyrics, idx, bdr_pred, line_start, phone_blank, pho
     return word_align, score
 
 
-def phone2seq(text, phone2int,phone_blank):
+def phone2seq(text, phone2int, phone_blank):
     seq = []
     for c in text:
         if c in phone2int.keys():
@@ -484,3 +492,39 @@ def voc_to_contour(times, resolution, total_length, smoothing=False):
             pass
 
     return contour
+
+
+import sys
+from datetime import datetime
+from io import TextIOBase
+
+
+class LoggerFileWrapper(TextIOBase):
+    """
+    sys.stdout = _LoggerFileWrapper(logger_file_path)
+    Log with PRINT Imported from NNI
+    """
+
+    def __init__(self, logger_file_path, file_name=''):
+        self.terminal = sys.stdout
+        if not os.path.isdir(logger_file_path):
+            os.makedirs(logger_file_path)
+        logger_file = open(os.path.join(logger_file_path, f'{file_name}_log.log'), 'a')
+        self.file = logger_file
+
+    def write(self, s):
+        self.terminal.write(s)
+        if s != '\n':
+            _time_format = '%m/%d/%Y, %I:%M:%S %p'
+            cur_time = datetime.now().strftime(_time_format)
+            self.file.write('[{}] PRINT '.format(cur_time) + s + '\n')
+            self.file.flush()
+        return len(s)
+
+
+def show_table(field_names, table_content):
+    arg_table = PrettyTable()
+    arg_table.field_names = field_names
+    for content in table_content:
+        arg_table.add_row([*content])
+    print('\n' + str(arg_table))

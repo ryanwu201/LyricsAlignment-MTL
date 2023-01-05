@@ -11,6 +11,98 @@ import DALI as dali_code
 from utils import load, load_lyrics, gen_phone_gt, ToolFreq2Midi
 
 
+def getData(database_path, vocal_path):
+    lyrics_path = os.path.join(database_path, 'txt')
+    annot_path = os.path.join(database_path, 'csv')
+    audio_path = os.path.join(database_path, 'audio')
+
+    # get audio list
+    audio_list = os.listdir(os.path.join(audio_path))
+
+    subset = list()
+    for file in audio_list:
+        id = file[:-4]
+        if file.endswith('.wav') and os.path.exists(os.path.join(annot_path, f'{id}.csv')):
+            song = {"id": id, "words": [], "path": os.path.join(audio_path, f'{id}.wav'),
+                    "vocal_path": os.path.join(audio_path, f'{id}.wav')}
+            # notes
+            notes = []
+            # words
+            words = []
+            # phoneme
+            max_phone = -1
+            max_phone_length = -1
+            phonemes_encode = []
+            infos = None
+            with open(os.path.join(annot_path, f'{id}.csv'), mode='rt') as f1:
+                infos = f1.readlines()
+                infos = [info.replace('\n', '').split(',') for info in infos[1:]]
+                for start, end, pitch, syllable in infos:
+                    start, end, pitch = float(start), float(end), int(pitch)
+                    phonemes = syllable.split('_')
+                    # notes
+                    note = {"pitch": pitch, "time": (start, end)}
+
+                    notes.append(note)
+
+                    # words
+                    sample = dict()
+                    sample["duration"] = end - start
+                    sample['text'] = syllable
+                    sample['index'] = None
+                    sample['time'] = (start, end)
+                    words.append(sample)
+
+                    # phoneme
+                    if len(phonemes) == 0:
+                        raise ValueError()
+                    max_phone = len(phonemes) if len(phonemes) > max_phone else max_phone
+                    temp_max_phone_length = max(list(map(lambda x: len(x), phonemes)))
+                    max_phone_length = temp_max_phone_length if temp_max_phone_length > max_phone_length else max_phone_length
+                    phonemes_encode.append([phoneme.encode() for phoneme in phonemes])
+                f1.close()
+            song["notes"] = notes
+            song["phonemes"] = phonemes_encode
+            song["max_phone"] = max_phone
+            song["max_phone_length"] = max_phone_length
+            song["phone_num"] = len(infos)
+
+            # boundary
+            lines = []
+            with open(os.path.join(lyrics_path, f'{id}.txt'), mode='rt') as f:
+                content = f.read()
+                utterances = content.replace('\n\n', '\n').split('\n')
+                syllable_index = 0
+                for i, utterance in enumerate(utterances):
+                    line = dict()
+                    n_syllable = len(utterance.split(' '))
+                    start_syllable_index = syllable_index
+                    syllable_index += n_syllable
+                    end_syllable_index = syllable_index - 1
+
+                    utterance_start_time = float(infos[start_syllable_index][0])
+                    utterance_end_time = float(infos[end_syllable_index][1])
+
+                    line['text'] = utterance
+                    line['index'] = i
+                    line['time'] = (utterance_start_time, utterance_end_time)
+                    lines.append(line)
+
+                    # word
+                    for word_index in range(start_syllable_index, end_syllable_index + 1, 1):
+                        words[word_index]['index'] = i
+                f.close()
+            song["lines"] = lines
+            song["words"] = words
+            subset.append(song)
+
+            logging.debug("Successfully loaded {} songs".format(len(subset)))
+
+    logging.debug("Scanning {} songs.".format(len(subset)))
+
+    return np.array(subset, dtype=object)
+
+
 def getDALI(database_path, vocal_path, lang, genre):
     dali_annot_path = os.path.join(database_path, 'annot_tismir')
     dali_audio_path = os.path.join(database_path, 'audio')
@@ -39,8 +131,7 @@ def getDALI(database_path, vocal_path, lang, genre):
 
                 song = {"id": file[:-4], "words": [], \
                         "path": os.path.join(dali_audio_path, file), \
-                        "vocal_path": os.path.join(vocal_path, file[:-4] + ".mp3")}
-                        # "vocal_path": os.path.join(vocal_path, file[:-4] + "_vocals.mp3")}
+                        "vocal_path": os.path.join(vocal_path, file[:-4] + "_vocals.mp3")}
 
                 # notes
                 notes_raw = entry["notes"]
@@ -98,20 +189,21 @@ def getDALI(database_path, vocal_path, lang, genre):
     return np.array(subset, dtype=object)
 
 
-def get_dali_folds(database_path, vocal_path, lang="english", genre=None, dataset_name='dali'):
+def get_dali_folds(database_path, vocal_path, lang="english", genre=None, dataset_name='dali', dummy=False):
     if dataset_name == 'dali':
         dataset = getDALI(database_path, vocal_path, lang, genre)
     else:
-         raise ValueError("Invalid dataset_name.")
+        dataset = getData(database_path, vocal_path)
     total_len = len(dataset)
     train_len = np.int(0.8 * total_len)
 
     train_list = np.random.choice(dataset, train_len, replace=False)
     val_list = [elem for elem in dataset if elem not in train_list]
 
-    # dummy testing
-    train_list = train_list[:20]
-    val_list = val_list[:20]
+    if dummy:
+        # dummy testing
+        train_list = train_list[:20]
+        val_list = val_list[:20]
 
     logging.debug(
         "First training song: " + str(train_list[0]["id"]) + " " + str(len(train_list[0]["words"])) + " lines")
@@ -191,6 +283,7 @@ class LyricsAlignDataset(Dataset):
                     # phoneme
                     phonemes_encode = example["phonemes"]
                     max_phone = example["max_phone"]
+                    max_phone_length = example.get('max_phone_length', 2)
 
                     grp.attrs["annot_num"] = annot_num
                     grp.attrs["note_num"] = note_num
@@ -204,7 +297,7 @@ class LyricsAlignDataset(Dataset):
                     grp.create_dataset("note_times", shape=(note_num, 2), dtype=note_times.dtype, data=note_times)
 
                     grp.create_dataset("line_times", shape=(len(lines), 2), dtype=lines_times.dtype, data=lines_times)
-                    grp.create_dataset("phonemes", shape=(annot_num, max_phone), dtype='S2')
+                    grp.create_dataset("phonemes", shape=(annot_num, max_phone), dtype=f'S{max_phone_length}')
                     for i in range(annot_num):
                         phonemes_sample = phonemes_encode[i]
                         grp["phonemes"][i, :len(phonemes_sample)] = np.array(phonemes_sample)
@@ -370,9 +463,11 @@ class JamendoLyricsDataset(Dataset):
     def __init__(self, sr, hdf_dir, dataset, jamendo_dir, audio_dir, in_memory=False, unit='phone',
                  phones=['AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY', 'F', 'G', 'HH',
                          'IH', 'IY', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P', 'R', 'S', 'SH', 'T', 'TH',
-                         'UH', 'UW', 'V', 'W', 'Y', 'Z', 'ZH', ' ']):
+                         'UH', 'UW', 'V', 'W', 'Y', 'Z', 'ZH', ' '], max_phone_length=2, lang='english'):
         super(JamendoLyricsDataset, self).__init__()
         self.phones = phones
+        self.max_phone_length = max_phone_length
+        self.lang = lang
         self.phone2int = {phones[i]: i for i in range(len(phones))}
         self.hdf_dataset = None
         os.makedirs(hdf_dir, exist_ok=True)
@@ -397,11 +492,11 @@ class JamendoLyricsDataset(Dataset):
                 print("Adding audio files to dataset (preprocessing)...")
                 for idx, audio_name in enumerate(tqdm(self.audio_list)):
                     # load audio
-                    y, _ = load(os.path.join(audio_dir, audio_name[:-4] + "_vocals.mp3"), sr=self.sr, mono=True)
+                    y, _ = load(os.path.join(audio_dir, audio_name[:-4] + ".mp3"), sr=self.sr, mono=True)
 
                     lyrics, words, idx_in_full, idx_line, raw_lines = load_lyrics(
                         os.path.join(lyrics_dir, audio_name[:-4]))
-                    lyrics_p, words_p, idx_in_full_p, idx_line_p = gen_phone_gt(words, raw_lines)
+                    lyrics_p, words_p, idx_in_full_p, idx_line_p = gen_phone_gt(words, raw_lines, self.lang)
 
                     print(audio_name)
                     annot_num = len(words)
@@ -415,11 +510,11 @@ class JamendoLyricsDataset(Dataset):
                     grp.attrs["audio_name"] = audio_name[:-4]
                     # print(len(lyrics))
 
-                    grp.create_dataset("lyrics", shape=(1, 1), dtype='S3000', data=np.array([lyrics.encode()]))
+                    grp.create_dataset("lyrics", shape=(1, 1), dtype='S10000', data=np.array([lyrics.encode()]))
                     grp.create_dataset("idx", shape=(annot_num, 2), dtype=np.int, data=idx_in_full)
                     grp.create_dataset("idx_line", shape=(line_num, 2), dtype=np.int, data=idx_line)
 
-                    grp.create_dataset("lyrics_p", shape=(len(lyrics_p), 1), dtype='S2',
+                    grp.create_dataset("lyrics_p", shape=(len(lyrics_p), 1), dtype=f'S{self.max_phone_length}',
                                        data=np.array([l_p.encode() for l_p in lyrics_p]))
                     grp.create_dataset("idx_p", shape=(annot_num, 2), dtype=np.int, data=idx_in_full_p)
                     grp.create_dataset("idx_line_p", shape=(line_num, 2), dtype=np.int, data=idx_line_p)

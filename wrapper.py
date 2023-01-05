@@ -11,10 +11,10 @@ from model import train_audio_transforms, AcousticModel, BoundaryDetection
 np.random.seed(7)
 
 
-def preprocess_from_file(audio_file, lyrics_file, word_file=None):
+def preprocess_from_file(audio_file, lyrics_file, word_file=None, lang='english'):
     y, sr = preprocess_audio(audio_file)
 
-    words, lyrics_p, idx_word_p, idx_line_p = preprocess_lyrics(lyrics_file, word_file)
+    words, lyrics_p, idx_word_p, idx_line_p = preprocess_lyrics(lyrics_file, word_file, lang)
 
     return y, words, lyrics_p, idx_word_p, idx_line_p
 
@@ -150,7 +150,7 @@ def preprocess_audio(audio_file, sr=22050):
     return y, curr_sr
 
 
-def preprocess_lyrics(lyrics_file, word_file=None):
+def preprocess_lyrics(lyrics_file, word_file=None, lang='english'):
     from string import ascii_lowercase
     d = {ascii_lowercase[i]: i for i in range(26)}
     d["'"] = 26
@@ -172,7 +172,7 @@ def preprocess_lyrics(lyrics_file, word_file=None):
     else:
         words_lines = full_lyrics.split()
 
-    lyrics_p, words_p, idx_word_p, idx_line_p = utils.gen_phone_gt(words_lines, raw_lines)
+    lyrics_p, words_p, idx_word_p, idx_line_p = utils.gen_phone_gt(words_lines, raw_lines, lang=lang)
 
     return words_lines, lyrics_p, idx_word_p, idx_line_p
 
