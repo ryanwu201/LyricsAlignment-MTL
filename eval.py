@@ -8,7 +8,7 @@ import hydra
 from omegaconf import DictConfig
 
 
-@hydra.main(version_base=None, config_path="config/eval", config_name="eval")
+@hydra.main(version_base=None, config_path="config/eval", config_name="csd_eval")
 def main(cfg: DictConfig):
     args = cfg
 
@@ -48,9 +48,15 @@ def main(cfg: DictConfig):
     state = utils.load_model(model, args.load_model, args.cuda)
 
     test_data = JamendoLyricsDataset(args.sr, args.hdf_dir, args.dataset, args.jamendo_dir, args.sepa_dir,
-                                     unit=args.unit, phones=args.phones)
+                                     unit=args.unit, phones=args.phones, lang=args.lang)
 
-    results = test.predict_align(args, model, test_data, device, args.model)
+    if 'predict_phoneme' not in args.keys() or ('predict_align' not in args.keys()):
+        results_align = test.predict_align(args, model, test_data, device, args.model)
+    else:
+        if args.predict_align:
+            results_align = test.predict_align(args, model, test_data, device, args.model)
+        if args.predict_phoneme:
+            results_phoneme = test.predict_phoneme(args, model, test_data, device, args.model)
 
     return
 

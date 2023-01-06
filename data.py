@@ -478,7 +478,7 @@ class JamendoLyricsDataset(Dataset):
         self.unit = unit
 
         lyrics_dir = os.path.join(jamendo_dir, 'lyrics')
-        self.audio_list = [file for file in os.listdir(os.path.join(jamendo_dir, 'mp3')) if file.endswith('.mp3')]
+        self.audio_list = [file for file in os.listdir(os.path.join(audio_dir)) if file.endswith('.wav')]
 
         # create hdf file
         if not os.path.exists(self.hdf_file):
@@ -492,7 +492,7 @@ class JamendoLyricsDataset(Dataset):
                 print("Adding audio files to dataset (preprocessing)...")
                 for idx, audio_name in enumerate(tqdm(self.audio_list)):
                     # load audio
-                    y, _ = load(os.path.join(audio_dir, audio_name[:-4] + ".mp3"), sr=self.sr, mono=True)
+                    y, _ = load(os.path.join(audio_dir, audio_name[:-4] + ".wav"), sr=self.sr, mono=True)
 
                     lyrics, words, idx_in_full, idx_line, raw_lines = load_lyrics(
                         os.path.join(lyrics_dir, audio_name[:-4]))
@@ -550,11 +550,13 @@ class JamendoLyricsDataset(Dataset):
             word_idx = self.hdf_dataset[str(index)]["idx"]
             line_idx = None
 
+        full_lyrics = self.hdf_dataset[str(index)]["lyrics"][0, 0].decode()
+
         chunks = [audio]
 
         # audio, (indices of the first characters/phonemes of the words, * of the lines),
         # (lyrics in characters/phonemes, song names, audio length in samples)
-        return chunks, (word_idx, line_idx), (lyrics, audio_name, audio_length)
+        return chunks, (word_idx, line_idx), (lyrics, audio_name, audio_length,full_lyrics)
 
     def __len__(self):
         return self.length

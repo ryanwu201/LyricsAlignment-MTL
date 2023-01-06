@@ -18,6 +18,8 @@ phone_blank: 40
 
 phones: [ 'AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY', 'F', 'G', 'HH', 'IH', 'IY', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P', 'R', 'S', 'SH', 'T', 'TH', 'UH', 'UW', 'V', 'W', 'Y', 'Z', 'ZH', ' ' ]
 
+lang: english
+
 #Dataset path
 hdf_dir: ../lyricsalignment_mtl_output_dali_test1/eval_MTL/hdf
 
