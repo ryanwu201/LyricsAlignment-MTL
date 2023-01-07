@@ -11,9 +11,13 @@ from tqdm import tqdm
 
 from data import get_dali_folds, LyricsAlignDataset
 from test import validate
-from utils import worker_init_fn, load_model
+from utils import worker_init_fn, load_model, LoggerFileWrapper, show_table
 
 from model import AcousticModel, data_processing, MultiTaskLossWrapper
+import hydra
+from omegaconf import DictConfig
+import sys
+
 
 def train(model, device, train_loader, criterion, optimizer, batch_size, model_type, loss_w=0.1):
     avg_time = 0.
@@ -58,7 +62,7 @@ def train(model, device, train_loader, criterion, optimizer, batch_size, model_t
                     break
 
         return train_loss / data_len, train_loss_phone / data_len, train_loss_melody / data_len
-    else: # baseline
+    else:  # baseline
         train_loss = 0.
 
         with tqdm(total=data_len) as pbar:
@@ -92,20 +96,27 @@ def train(model, device, train_loader, criterion, optimizer, batch_size, model_t
 
         return train_loss / data_len, train_loss / data_len, None
 
-def main(args):
+
+@hydra.main(version_base=None, config_path="config/train", config_name="csd_config")
+def main(cfg: DictConfig):
+    args = cfg
+
+    # log
+    sys.stdout = LoggerFileWrapper(args.checkpoint_dir, args.model)
+    show_table(["Argument name", "Value"], args._content.items())
 
     if args.model == "baseline":
-        n_class = 41
+        n_class = args.dataset.n_phone_class
     elif args.model == "MTL":
-        n_class = (41, 47)
+        n_class = (args.dataset.n_phone_class, args.dataset.n_pitch_class)
     else:
-        ValueError("Invalid model type.")
+        raise ValueError("Invalid model type.")
 
     hparams = {
         "n_cnn_layers": args.cnn_layers,
         "n_rnn_layers": 3,
         "rnn_dim": args.rnn_dim,
-        "n_class": n_class, # (phone, pitch) or phone
+        "n_class": n_class,  # (phone, pitch) or phone
         "n_feats": 32,
         "stride": 1,
         "dropout": 0.1,
@@ -136,14 +147,18 @@ def main(args):
     print('Num Model Parameters', sum([param.nelement() for param in model.parameters()]))
 
     # prepare dataset
-    if os.path.exists(os.path.join(args.hdf_dir, "val.hdf5")) and os.path.exists(os.path.join(args.hdf_dir, "train.hdf5")):
+    if os.path.exists(os.path.join(args.dataset.hdf_dir, "val.hdf5")) and os.path.exists(
+            os.path.join(args.dataset.hdf_dir, "train.hdf5")):
         dali_split = {"train": [], "val": []}  # h5 files already saved
     else:
         # call the DALI wrapper to get word-level annotations
-        dali_split = get_dali_folds(args.dataset_dir, args.sepa_dir)
+        dali_split = get_dali_folds(args.dataset.dataset_dir, args.dataset.sepa_dir, dataset_name=args.dataset.name,
+                                    dummy=args.dummy)
 
-    val_data = LyricsAlignDataset(dali_split, "val", args.sr, hparams['input_sample'], args.hdf_dir, dummy=args.dummy)
-    train_data = LyricsAlignDataset(dali_split, "train", args.sr, hparams['input_sample'], args.hdf_dir, dummy=args.dummy)
+    val_data = LyricsAlignDataset(dali_split, "val", args.sr, hparams['input_sample'], args.dataset.hdf_dir,
+                                  dummy=args.dummy, phones=args.dataset.phones)
+    train_data = LyricsAlignDataset(dali_split, "train", args.sr, hparams['input_sample'], args.dataset.hdf_dir,
+                                    dummy=args.dummy, phones=args.dataset.phones)
 
     kwargs = {'num_workers': args.num_workers, 'pin_memory': True} if use_cuda else {}
     train_loader = data.DataLoader(dataset=train_data,
@@ -153,16 +168,16 @@ def main(args):
                                    collate_fn=lambda x: data_processing(x),
                                    **kwargs)
     val_loader = data.DataLoader(dataset=val_data,
-                                   batch_size=hparams["batch_size"],
-                                   shuffle=False,
-                                   collate_fn=lambda x: data_processing(x),
-                                   **kwargs)
+                                 batch_size=hparams["batch_size"],
+                                 shuffle=False,
+                                 collate_fn=lambda x: data_processing(x),
+                                 **kwargs)
 
     optimizer = optim.Adam(model.parameters(), hparams['learning_rate'])
     if args.model == "baseline":
-        criterion = nn.CTCLoss(blank=40, zero_infinity=True)
+        criterion = nn.CTCLoss(blank=args.dataset.phone_blank, zero_infinity=True)
     else:
-        criterion = MultiTaskLossWrapper()
+        criterion = MultiTaskLossWrapper(args.dataset.phone_blank)
 
     # training state dict for saving checkpoints
     state = {"step": 0,
@@ -184,21 +199,34 @@ def main(args):
         print("Training one epoch from epoch " + str(state["epochs"]))
 
         # train
-        train_loss, train_loss_phone, train_loss_melody = train(model, device, train_loader, criterion, optimizer, args.batch_size, args.model, args.loss_w)
-        print("TRAINING FINISHED: LOSS: " + str(train_loss) + " phone loss: " + str(train_loss_phone) + " melody loss: " + str(train_loss_melody))
+        train_loss, train_loss_phone, train_loss_melody = train(model, device, train_loader, criterion, optimizer,
+                                                                args.batch_size, args.model, args.loss_w)
+        print("TRAINING FINISHED: LOSS: " + str(train_loss) + " phone loss: " + str(
+            train_loss_phone) + " melody loss: " + str(train_loss_melody))
         writer.add_scalar("train/epoch_loss", train_loss, state["epochs"])
         writer.add_scalar("train/phone_loss", train_loss_phone, state["epochs"])
         if args.model == "MTL":
             writer.add_scalar("train/melody_loss", train_loss_melody, state["epochs"])
 
-        val_loss, val_loss_phone, val_loss_melody = validate(args.batch_size, model, -1, criterion, val_loader, device, args.model, args.loss_w)
-        print("VALIDATION FINISHED: LOSS: " + str(val_loss) + " phone loss: " + str(val_loss_phone) + " melody loss: " + str(val_loss_melody))
+        val_loss, val_loss_phone, val_loss_melody = validate(args.batch_size, model, -1, criterion, val_loader, device,
+                                                             args.model, args.loss_w)
+        print("VALIDATION FINISHED: LOSS: " + str(val_loss) + " phone loss: " + str(
+            val_loss_phone) + " melody loss: " + str(val_loss_melody))
         writer.add_scalar("val/loss", val_loss, state["epochs"])
         writer.add_scalar("val/phone_loss", val_loss_phone, state["epochs"])
         if args.model == "MTL":
             writer.add_scalar("val/melody_loss", val_loss_melody, state["epochs"])
 
-        checkpoint_path = os.path.join(args.checkpoint_dir, "checkpoint_" + str(state["epochs"]))
+        def save_checkpoint(name):
+            checkpoint_path = os.path.join(args.checkpoint_dir, f'checkpoint_{name}')
+            # save the best checkpoint
+            print(f'Saving {name} model... epoch {state["epochs"]} loss {train_loss}')
+            torch.save({
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'state': state
+            }, checkpoint_path)
+
         if val_loss >= state["best_loss"]:
             if state["epochs"] >= 20:  # after 20 epochs, start early stopping counts
                 state["worse_epochs"] += 1
@@ -206,59 +234,19 @@ def main(args):
             print("MODEL IMPROVED ON VALIDATION SET!")
             state["worse_epochs"] = 0
             state["best_loss"] = val_loss
-            state["best_checkpoint"] = checkpoint_path
+            state["best_checkpoint"] = os.path.join(args.checkpoint_dir, "checkpoint_" + str(state["epochs"]))
+            save_checkpoint('best')
 
         # save all checkpoints
-        print("Saving model... best_epoch {} best_loss {}".format(state["best_checkpoint"], state["best_loss"]))
-        torch.save({
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'state': state
-        }, checkpoint_path)
+        save_checkpoint('last')
+
+        if int(state['epochs']) % 50 == 0:
+            save_checkpoint(state['epochs'])
 
         state["epochs"] += 1
 
     writer.close()
 
+
 if __name__ == '__main__':
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--cuda', action='store_true',
-                        help='Use CUDA (default: False)')
-    parser.add_argument('--dummy', action='store_true',
-                        help='Use dummy train/val sets (default: False)')
-    parser.add_argument('--num_workers', type=int, default=1,
-                        help='Number of data loader worker threads (default: 1)')
-    parser.add_argument('--log_dir', type=str, required=True,
-                        help='Folder to write logs into')
-    parser.add_argument('--dataset_dir', type=str, required=True,
-                        help='Dataset path')
-    parser.add_argument('--sepa_dir', type=str, required=True,
-                        help='Where all the separated vocals are stored.')
-    parser.add_argument('--hdf_dir', type=str, default="./hdf/",
-                        help='Dataset path')
-    parser.add_argument('--checkpoint_dir', type=str, required=True,
-                        help='Folder to write checkpoints into')
-    parser.add_argument('--model', type=str, default="baseline",
-                        help='"baseline" or "MTL"')
-    parser.add_argument('--load_model', type=str, default=None,
-                        help='Reload a previously trained model (whole task model)')
-    parser.add_argument('--lr', type=float, default=1e-4,
-                        help='Learning rate (default: 1e-4)')
-    parser.add_argument('--batch_size', type=int, default=16,
-                        help="Batch size")
-    parser.add_argument('--sr', type=int, default=22050,
-                        help="Sampling rate")
-    parser.add_argument('--input_sample', type=int, default=123904,
-                        help="Input sample")
-    parser.add_argument('--cnn_layers', type=int, default=1,
-                        help="num of cnn layers")
-    parser.add_argument('--rnn_dim', type=int, default=256,
-                        help="dimension of rnn layers")
-    parser.add_argument('--loss_w', type=float, default=0.1,
-                        help="weight of voc loss")
-
-    args = parser.parse_args()
-    print(args)
-
-    main(args)
+    main()

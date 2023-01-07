@@ -1,0 +1,51 @@
+#Use CUDA (default: true)
+cuda: true
+
+predict_align: false
+
+predict_phoneme: true
+
+#Dataset path
+jamendo_dir: /home/ryan/dataset/jamendolyrics_csd_val
+
+#Where all the separated vocals of Jamendo are stored.
+sepa_dir: /home/ryan/dataset/jamendolyrics_csd_val/audio
+
+#Dataset name
+dataset: jamendo_csd
+
+n_phone_class: 34
+
+n_pitch_class: 47
+
+phone_blank: 33
+
+phones: [ 'u', 'k', 'kk', 'h', 'd', 'ch', 's', 'a', 'b', 'ui', 'r', 'tt', 'eu', 'n', 'ng', 'y', 'ss', 'i', 'eo', 'jj', 'w', 'oe', 'm', 'p', 'e', 'o', 'l', 'ae', 't', 'g', 'pp', 'j', ' ' ]
+
+lang: korean
+
+ctc_decoder:
+  lexicon: /home/ryan/dataset/csd/lexcion.txt
+  tokens: /home/ryan/dataset/csd/tokens.txt
+
+#Dataset path
+hdf_dir: ../lyricsalignment_mtl_output_csd_mtl/eval/hdf
+
+#Prediction path
+pred_dir: ../lyricsalignment_mtl_output_csd_mtl/eval/pred
+
+#Reload a previously trained model (whole task model)
+load_model: ../lyricsalignment_mtl_output_csd_mtl/checkpoints/checkpoint_best
+
+#"baseline" or "MTL"
+model: MTL
+
+#Sampling rate
+sr: 22050
+
+#RNN dimension
+rnn_dim: 256
+
+#Alignment unit: char or phone; Should match the model type.
+unit: phone
+

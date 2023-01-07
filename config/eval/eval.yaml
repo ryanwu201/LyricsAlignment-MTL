@@ -1,0 +1,43 @@
+#Use CUDA (default: true)
+cuda: true
+
+#Dataset path
+jamendo_dir: /home/ryan/PycharmProjects/jamendolyrics1
+
+#Where all the separated vocals of Jamendo are stored.
+sepa_dir: /home/ryan/PycharmProjects/jamendolyrics1/vocals
+
+#Dataset name
+dataset: jamendo
+
+n_phone_class: 41
+
+n_pitch_class: 47
+
+phone_blank: 40
+
+phones: [ 'AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY', 'F', 'G', 'HH', 'IH', 'IY', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P', 'R', 'S', 'SH', 'T', 'TH', 'UH', 'UW', 'V', 'W', 'Y', 'Z', 'ZH', ' ' ]
+
+lang: english
+
+#Dataset path
+hdf_dir: ../lyricsalignment_mtl_output_dali_test1/eval_MTL/hdf
+
+#Prediction path
+pred_dir: ../lyricsalignment_mtl_output_dali_test1/eval_MTL/pred
+
+#Reload a previously trained model (whole task model)
+load_model: /home/ryan/PycharmProjects/LyricsAlignment-MTL1/checkpoints/checkpoint_MTL
+
+#"baseline" or "MTL"
+model: MTL
+
+#Sampling rate
+sr: 22050
+
+#RNN dimension
+rnn_dim: 256
+
+#Alignment unit: char or phone; Should match the model type.
+unit: phone
+

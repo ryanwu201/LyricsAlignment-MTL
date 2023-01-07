@@ -8,8 +8,74 @@ from model import train_audio_transforms
 
 from scipy.signal import medfilt
 
-def predict_align(args, model, test_data, device, model_type):
+from torchaudio.models.decoder import ctc_decoder
+from torchmetrics.functional import char_error_rate, word_error_rate
 
+
+def predict_phoneme(args, model, test_data, device, model_type):
+    if not os.path.exists(args.pred_dir):
+        os.makedirs(args.pred_dir)
+
+    dataloader = torch.utils.data.DataLoader(test_data,
+                                             batch_size=1,
+                                             shuffle=False,
+                                             num_workers=0,
+                                             collate_fn=utils.my_collate)
+    model.eval()
+
+    resolution = 256 / 22050 * 3
+    wers, cers = 0, 0
+    pred_transcripts = []
+    with tqdm(total=len(test_data)) as pbar, torch.no_grad():
+        for example_num, _data in enumerate(dataloader):
+            x, _, meta = _data
+            words, audio_name, _, full_lyrics = meta[0]
+
+            # reshape input, prepare mel
+            x = x.reshape(1, 1, -1)
+            x = utils.move_data_to_device(x, device)
+            x = x.squeeze(0)
+            x = x.squeeze(1)
+            x = train_audio_transforms.to(device)(x)
+            x = nn.utils.rnn.pad_sequence(x, batch_first=True).unsqueeze(1)
+
+            # predict
+            all_outputs = model(x)
+            if model_type == "MTL":
+                all_outputs = torch.sum(all_outputs, dim=3)
+
+            all_outputs = F.log_softmax(all_outputs, dim=2)
+
+            decoder = ctc_decoder(**args.ctc_decoder)
+            all_outputs = all_outputs.data.cpu()
+            ctc_hypothesises = decoder(all_outputs)
+
+            pred_transcript = ' '.join(ctc_hypothesises[0][0].words)
+            gt_transcript = full_lyrics
+
+            cer = char_error_rate([pred_transcript], [gt_transcript]).item()
+            wer = word_error_rate([pred_transcript], [gt_transcript]).item()
+
+            print(f"\n{audio_name}: pred_transcript: {pred_transcript}")
+            print(f"{audio_name}: gt_transcript: {gt_transcript}")
+            print(f"{audio_name}: Word error rate: {wer}, Character error rate: {cer}")
+
+            cers += cer
+            wers += wer
+            transcript = dict()
+            transcript['audio_name'] = audio_name
+            transcript['pred'] = pred_transcript
+            transcript['gt_transcript'] = gt_transcript
+            pred_transcripts.append(transcript)
+            pbar.update(1)
+
+    print(f"Word error rate, averaged over all songs: {wers / len(test_data)}")
+    print(f"Character error rate,averaged over all songs: {cers / len(test_data)}")
+
+    return pred_transcripts
+
+
+def predict_align(args, model, test_data, device, model_type):
     if not os.path.exists(args.pred_dir):
         os.makedirs(args.pred_dir)
 
@@ -25,11 +91,12 @@ def predict_align(args, model, test_data, device, model_type):
     with tqdm(total=len(test_data)) as pbar, torch.no_grad():
         for example_num, _data in enumerate(dataloader):
             x, idx, meta = _data
-            idx = idx[0][0] # first sample in the batch (which has only one sample); first element in the tuple (align_idx, line_idx)
-            words, audio_name, audio_length = meta[0]
+            idx = idx[0][
+                0]  # first sample in the batch (which has only one sample); first element in the tuple (align_idx, line_idx)
+            words, audio_name, audio_length, full_lyrics = meta[0]
 
             # reshape input, prepare mel
-            x = x.reshape(1,1,-1)
+            x = x.reshape(1, 1, -1)
             x = utils.move_data_to_device(x, device)
             x = x.squeeze(0)
             x = x.squeeze(1)
@@ -45,7 +112,7 @@ def predict_align(args, model, test_data, device, model_type):
 
             batch_num, output_length, num_classes = all_outputs.shape
 
-            song_pred = all_outputs.data.cpu().numpy().reshape(-1, num_classes) # total_length, num_classes
+            song_pred = all_outputs.data.cpu().numpy().reshape(-1, num_classes)  # total_length, num_classes
             total_length = int(audio_length / args.sr // resolution)
             song_pred = song_pred[:total_length, :]
 
@@ -54,21 +121,21 @@ def predict_align(args, model, test_data, device, model_type):
             song_pred = np.log(np.exp(song_pred) + P_noise)
 
             # dynamic programming alignment
-            word_align, score = utils.alignment(song_pred, words, idx)
+            word_align, score = utils.alignment(song_pred, words, idx, args.phone_blank, test_data.phone2int)
             print("\t{}:\t{}".format(audio_name, score))
 
             # write
             with open(os.path.join(args.pred_dir, audio_name + "_align.csv"), 'w') as f:
                 for j in range(len(word_align)):
                     word = word_align[j]
-                    f.write("{},{},{}\n".format(word[0] * resolution, word[1] * resolution, words[idx[j,0]:idx[j,1]]))
+                    f.write("{},{},{}\n".format(word[0] * resolution, word[1] * resolution, words[idx[j, 0]:idx[j, 1]]))
 
             pbar.update(1)
 
     return 0
 
-def predict_pitch(args, model, test_data, device):
 
+def predict_pitch(args, model, test_data, device):
     if not os.path.exists(args.pred_dir):
         os.makedirs(args.pred_dir)
 
@@ -83,7 +150,7 @@ def predict_pitch(args, model, test_data, device):
             x, _, meta = _data
             audio_name, audio_length = meta[0]
 
-            x = x.reshape(1,1,-1)
+            x = x.reshape(1, 1, -1)
 
             x = utils.move_data_to_device(x, device)
             x = x.squeeze(0)
@@ -100,14 +167,14 @@ def predict_pitch(args, model, test_data, device):
 
             song_pred = all_outputs.data.cpu().numpy().reshape(-1, num_classes)
 
-            resolution = 256/22050*3
+            resolution = 256 / 22050 * 3
             total_length = int(audio_length / args.sr // resolution)
 
-            assert(total_length <= output_length)
+            assert (total_length <= output_length)
 
             song_pred = song_pred[:total_length, :]
             pc_est = np.argmax(song_pred, axis=1) + 38
-            pc_est[pc_est==84] = 0 # class 128 -> 0
+            pc_est[pc_est == 84] = 0  # class 128 -> 0
             pc_est = medfilt(pc_est, kernel_size=11)
 
             times_est = np.arange(total_length) * resolution
@@ -128,13 +195,12 @@ def predict_pitch(args, model, test_data, device):
 
                     onset = offset + 1
 
-
             pbar.update(1)
 
     return
 
-def validate(batch_size, model, target_frame, criterion, dataloader, device, model_type, loss_w=0.1):
 
+def validate(batch_size, model, target_frame, criterion, dataloader, device, model_type, loss_w=0.1):
     avg_time = 0.
     model.eval()
 
@@ -202,8 +268,8 @@ def validate(batch_size, model, target_frame, criterion, dataloader, device, mod
 
         return total_loss / data_len, total_loss / data_len, None
 
-def predict_w_bdr(args, ac_model, bdr_model, test_data, device, alpha, model_type):
 
+def predict_w_bdr(args, ac_model, bdr_model, test_data, device, alpha, model_type):
     if not os.path.exists(args.pred_dir):
         os.makedirs(args.pred_dir)
 
@@ -220,12 +286,14 @@ def predict_w_bdr(args, ac_model, bdr_model, test_data, device, alpha, model_typ
     with tqdm(total=len(test_data)) as pbar, torch.no_grad():
         for example_num, _data in enumerate(dataloader):
             x, idx, meta = _data
-            line_start = [d[0] for d in idx[0][1]] # first sample in the batch (which has only one sample); second element in the tuple (align_idx, line_idx)
-            idx = idx[0][0] # first sample in the batch (which has only one sample); first element in the tuple (align_idx, line_idx)
+            line_start = [d[0] for d in idx[0][
+                1]]  # first sample in the batch (which has only one sample); second element in the tuple (align_idx, line_idx)
+            idx = idx[0][
+                0]  # first sample in the batch (which has only one sample); first element in the tuple (align_idx, line_idx)
             words, audio_name, audio_length = meta[0]
 
             # reshape input, prepare mel
-            x = x.reshape(1,1,-1)
+            x = x.reshape(1, 1, -1)
             x = utils.move_data_to_device(x, device)
             x = x.squeeze(0)
             x = x.squeeze(1)
@@ -250,21 +318,22 @@ def predict_w_bdr(args, ac_model, bdr_model, test_data, device, alpha, model_typ
             batch_num, output_length, num_classes = ac_outputs.shape
             song_pred = ac_outputs.data.cpu().numpy().reshape(-1, num_classes)
             total_length = int(audio_length / args.sr // resolution)
-            song_pred = song_pred[:total_length, :] # total_length, num_classes
+            song_pred = song_pred[:total_length, :]  # total_length, num_classes
 
             # smoothing
             P_noise = np.random.uniform(low=1e-11, high=1e-10, size=song_pred.shape)
             song_pred = np.log(np.exp(song_pred) + P_noise)
 
             # dynamic programming alignment with boundary information
-            word_align, score = utils.alignment_bdr(song_pred, words, idx, bdr_outputs, line_start)
+            word_align, score = utils.alignment_bdr(song_pred, words, idx, bdr_outputs, line_start, args.phone_blank,
+                                                    test_data.phone2int)
             print("\t{}:\t{}".format(audio_name, score))
 
             # write
             with open(os.path.join(args.pred_dir, audio_name + "_align.csv"), 'w') as f:
                 for j in range(len(word_align)):
                     word = word_align[j]
-                    f.write("{},{},{}\n".format(word[0] * resolution, word[1] * resolution, words[idx[j,0]:idx[j,1]]))
+                    f.write("{},{},{}\n".format(word[0] * resolution, word[1] * resolution, words[idx[j, 0]:idx[j, 1]]))
 
             pbar.update(1)
 

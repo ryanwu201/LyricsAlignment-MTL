@@ -10,15 +10,20 @@ from model import train_audio_transforms, AcousticModel, BoundaryDetection
 
 np.random.seed(7)
 
-def preprocess_from_file(audio_file, lyrics_file, word_file=None):
+
+def preprocess_from_file(audio_file, lyrics_file, word_file=None, lang='english'):
     y, sr = preprocess_audio(audio_file)
 
-    words, lyrics_p, idx_word_p, idx_line_p = preprocess_lyrics(lyrics_file, word_file)
+    words, lyrics_p, idx_word_p, idx_line_p = preprocess_lyrics(lyrics_file, word_file, lang)
 
     return y, words, lyrics_p, idx_word_p, idx_line_p
 
-def align(audio, words, lyrics_p, idx_word_p, idx_line_p, method="Baseline", cuda=True):
 
+def align(audio, words, lyrics_p, idx_word_p, idx_line_p, n_phone_class, n_pitch_class, phone_blank,
+          phones=['AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY', 'F', 'G', 'HH', 'IH',
+                  'IY', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P', 'R', 'S', 'SH', 'T', 'TH', 'UH', 'UW', 'V',
+                  'W', 'Y', 'Z', 'ZH', ' '], method="Baseline", cuda=True, checkpoint_path=None):
+    phone2int = {phones[i]: i for i in range(len(phones))}
     # start timer
     t = time()
 
@@ -37,9 +42,9 @@ def align(audio, words, lyrics_p, idx_word_p, idx_line_p, method="Baseline", cud
 
     # prepare acoustic model params
     if model_type == "Baseline":
-        n_class = 41
+        n_class = n_phone_class
     elif model_type == "MTL":
-        n_class = (41, 47)
+        n_class = (n_phone_class, n_pitch_class)
     else:
         ValueError("Invalid model type.")
 
@@ -61,7 +66,9 @@ def align(audio, words, lyrics_p, idx_word_p, idx_line_p, method="Baseline", cud
     ).to(device)
 
     print("Loading acoustic model from checkpoint...")
-    state = utils.load_model(ac_model, "./checkpoints/checkpoint_{}".format(model_type), cuda=(device=="gpu"))
+    if not checkpoint_path:
+        checkpoint_path = "./checkpoints/checkpoint_{}".format(model_type)
+    state = utils.load_model(ac_model, checkpoint_path, cuda=(device == "gpu"))
     ac_model.eval()
 
     print("Computing phoneme posteriorgram...")
@@ -119,16 +126,18 @@ def align(audio, words, lyrics_p, idx_word_p, idx_line_p, method="Baseline", cud
 
         # start alignment
         print("Aligning...It might take a few minutes...")
-        word_align, score = utils.alignment_bdr(song_pred, lyrics_p, idx_word_p, bdr_outputs, line_start)
+        word_align, score = utils.alignment_bdr(song_pred, lyrics_p, idx_word_p, bdr_outputs, line_start, phone_blank,
+                                                phone2int)
     else:
         # start alignment
         print("Aligning...It might take a few minutes...")
-        word_align, score = utils.alignment(song_pred, lyrics_p, idx_word_p)
+        word_align, score = utils.alignment(song_pred, lyrics_p, idx_word_p, phone_blank, phone2int)
 
     t = time() - t
     print("Alignment Score:\t{}\tTime:\t{}".format(score, t))
 
     return word_align, words
+
 
 def preprocess_audio(audio_file, sr=22050):
     with warnings.catch_warnings():
@@ -136,16 +145,18 @@ def preprocess_audio(audio_file, sr=22050):
         y, curr_sr = librosa.load(audio_file, sr=sr, mono=True, res_type='kaiser_fast')
 
     if len(y.shape) == 1:
-        y = y[np.newaxis, :] # (channel, sample)
+        y = y[np.newaxis, :]  # (channel, sample)
 
     return y, curr_sr
 
-def preprocess_lyrics(lyrics_file, word_file=None):
+
+def preprocess_lyrics(lyrics_file, word_file=None, lang='english'):
     from string import ascii_lowercase
     d = {ascii_lowercase[i]: i for i in range(26)}
     d["'"] = 26
     d[" "] = 27
     d["~"] = 28
+    d["_"] = 29
 
     # process raw
     with open(lyrics_file, 'r') as f:
@@ -162,9 +173,10 @@ def preprocess_lyrics(lyrics_file, word_file=None):
     else:
         words_lines = full_lyrics.split()
 
-    lyrics_p, words_p, idx_word_p, idx_line_p = utils.gen_phone_gt(words_lines, raw_lines)
+    lyrics_p, words_p, idx_word_p, idx_line_p = utils.gen_phone_gt(words_lines, raw_lines, lang=lang)
 
     return words_lines, lyrics_p, idx_word_p, idx_line_p
+
 
 def write_csv(pred_file, word_align, words):
     resolution = 256 / 22050 * 3

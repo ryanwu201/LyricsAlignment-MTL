@@ -4,12 +4,18 @@ from data import JamendoLyricsDataset
 from model import AcousticModel
 import utils, test
 
-def main(args):
+import hydra
+from omegaconf import DictConfig
+
+
+@hydra.main(version_base=None, config_path="config/eval", config_name="csd_eval")
+def main(cfg: DictConfig):
+    args = cfg
 
     if args.model == "baseline":
-        n_class = 41
+        n_class = args.n_phone_class
     elif args.model == "MTL":
-        n_class = (41, 47)
+        n_class = (args.n_phone_class, args.n_pitch_class)
     else:
         ValueError("Invalid model type.")
 
@@ -41,38 +47,19 @@ def main(args):
 
     state = utils.load_model(model, args.load_model, args.cuda)
 
-    test_data = JamendoLyricsDataset(args.sr, args.hdf_dir, args.dataset, args.jamendo_dir, args.sepa_dir, unit=args.unit)
+    test_data = JamendoLyricsDataset(args.sr, args.hdf_dir, args.dataset, args.jamendo_dir, args.sepa_dir,
+                                     unit=args.unit, phones=args.phones, lang=args.lang)
 
-    results = test.predict_align(args, model, test_data, device, args.model)
+    if 'predict_phoneme' not in args.keys() or ('predict_align' not in args.keys()):
+        results_align = test.predict_align(args, model, test_data, device, args.model)
+    else:
+        if args.predict_align:
+            results_align = test.predict_align(args, model, test_data, device, args.model)
+        if args.predict_phoneme:
+            results_phoneme = test.predict_phoneme(args, model, test_data, device, args.model)
 
     return
 
+
 if __name__ == '__main__':
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--cuda', action='store_true',
-                        help='Use CUDA (default: False)')
-    parser.add_argument('--jamendo_dir', type=str, required=True,
-                        help='Dataset path')
-    parser.add_argument('--sepa_dir', type=str, required=True,
-                        help='Where all the separated vocals of Jamendo are stored.')
-    parser.add_argument('--dataset', type=str, default="jamendo",
-                        help='Dataset name')
-    parser.add_argument('--hdf_dir', type=str, default="./hdf/",
-                        help='Dataset path')
-    parser.add_argument('--pred_dir', type=str, required=True,
-                        help='Prediction path')
-    parser.add_argument('--load_model', type=str, required=True,
-                        help='Reload a previously trained model (whole task model)')
-    parser.add_argument('--model', type=str, default="baseline",
-                        help='"baseline" or "MTL"')
-    parser.add_argument('--sr', type=int, default=22050,
-                        help="Sampling rate")
-    parser.add_argument('--rnn_dim', type=int, default=256,
-                        help="RNN dimension")
-    parser.add_argument('--unit', type=str, default="phone",
-                        help="Alignment unit: char or phone; Should match the model type.")
-
-    args = parser.parse_args()
-
-    main(args)
+    main()

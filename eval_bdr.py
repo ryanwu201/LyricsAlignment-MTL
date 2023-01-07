@@ -4,14 +4,20 @@ from data import JamendoLyricsDataset
 from model import AcousticModel, BoundaryDetection
 import utils, test
 
-def main(args):
+import hydra
+from omegaconf import DictConfig
+
+
+@hydra.main(version_base=None, config_path="config/eval", config_name="eval_bdr")
+def main(cfg: DictConfig):
+    args = cfg
     device = 'cuda' if (args.cuda and torch.cuda.is_available()) else 'cpu'
 
     # acoustic model
     if args.model == "baseline":
-        n_class = 41
+        n_class = args.n_phone_class
     elif args.model == "MTL":
-        n_class = (41, 47)
+        n_class = (args.n_phone_class, args.n_pitch_class)
     else:
         ValueError("Invalid model type.")
 
@@ -32,8 +38,8 @@ def main(args):
     # boundary model: fixed
     bdr_hparams = {
         "n_cnn_layers": 1,
-        "rnn_dim": 32, # a smaller rnn dim than acoustic model
-        "n_class": 1, # binary classification
+        "rnn_dim": 32,  # a smaller rnn dim than acoustic model
+        "n_class": 1,  # binary classification
         "n_feats": 32,
         "stride": 1,
         "dropout": 0.1,
@@ -60,48 +66,13 @@ def main(args):
     ac_state = utils.load_model(ac_model, args.ac_model, args.cuda)
     bdr_state = utils.load_model(bdr_model, args.bdr_model, args.cuda)
 
-    test_data = JamendoLyricsDataset(args.sr, args.hdf_dir, args.dataset, args.jamendo_dir, args.sepa_dir, unit=args.unit)
+    test_data = JamendoLyricsDataset(args.sr, args.hdf_dir, args.dataset, args.jamendo_dir, args.sepa_dir,
+                                     unit=args.unit, phones=args.phones)
 
     # predict with boundary detection
     results = test.predict_w_bdr(args, ac_model, bdr_model, test_data, device,
                                  args.alpha, args.model)
 
+
 if __name__ == '__main__':
-    ## EVALUATE PARAMETERS
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--cuda', action='store_true',
-                        help='Use CUDA (default: False)')
-    parser.add_argument('--num_workers', type=int, default=0,
-                        help='Number of data loader worker threads (default: 1)')
-    parser.add_argument('--features', type=int, default=24,
-                        help='Number of feature channels per layer')
-    parser.add_argument('--jamendo_dir', type=str, required=True,
-                        help='Dataset path')
-    parser.add_argument('--sepa_dir', type=str, required=True,
-                        help='Where all the separated vocals of Jamendo are stored.')
-    parser.add_argument('--dataset', type=str, default="jamendo",
-                        help='Dataset name')
-    parser.add_argument('--hdf_dir', type=str, default="./hdf/",
-                        help='Dataset path')
-    parser.add_argument('--pred_dir', type=str, required=True,
-                        help='prediction path')
-    parser.add_argument('--ac_model', type=str, required=True,
-                        help='Reload a previously trained acoustic model')
-    parser.add_argument('--bdr_model', type=str, required=True,
-                        help='Reload a previously trained boundary detection model')
-    parser.add_argument('--model', type=str, default="baseline",
-                        help='"baseline" or "MTL"')
-    parser.add_argument('--sr', type=int, default=22050,
-                        help="Sampling rate")
-    parser.add_argument('--rnn_dim', type=int, default=256,
-                        help="RNN dimension")
-    parser.add_argument('--unit', type=str, default="phone",
-                        help="Alignment unit: char or phone; Should match the model type.")
-    parser.add_argument('--alpha', type=float, default=0.1,
-                        help="weight svd score")
-
-    args = parser.parse_args()
-
-    main(args)
-
-    main(args)
+    main()
