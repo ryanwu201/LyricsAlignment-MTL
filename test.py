@@ -209,6 +209,7 @@ def validate(batch_size, model, target_frame, criterion, dataloader, device, mod
         total_loss_phone = 0.
         total_loss_melody = 0.
         data_len = len(dataloader.dataset) // batch_size
+        data_len = 1 if data_len < 1 else data_len
 
         with tqdm(total=data_len) as pbar:
             for batch_idx, _data in enumerate(dataloader):
@@ -241,6 +242,7 @@ def validate(batch_size, model, target_frame, criterion, dataloader, device, mod
     else:
         total_loss = 0.
         data_len = len(dataloader.dataset) // batch_size
+        data_len = 1 if data_len < 1 else data_len
 
         with tqdm(total=data_len) as pbar:
             for batch_idx, _data in enumerate(dataloader):

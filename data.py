@@ -11,16 +11,18 @@ import DALI as dali_code
 from utils import load, load_lyrics, gen_phone_gt, ToolFreq2Midi
 
 
-def getData(database_path, vocal_path):
+def getData(database_path, vocal_path, dummy):
     lyrics_path = os.path.join(database_path, 'txt')
     annot_path = os.path.join(database_path, 'csv')
     audio_path = os.path.join(database_path, 'audio')
 
     # get audio list
     audio_list = os.listdir(os.path.join(audio_path))
-
+    if dummy:
+        # dummy testing
+        audio_list = audio_list[:100]
     subset = list()
-    for file in audio_list:
+    for file in tqdm(audio_list, desc='The first time of loading data'):
         id = file[:-4]
         if file.endswith('.wav') and os.path.exists(os.path.join(annot_path, f'{id}.csv')):
             song = {"id": id, "words": [], "path": os.path.join(audio_path, f'{id}.wav'),
@@ -192,18 +194,21 @@ def getDALI(database_path, vocal_path, lang, genre):
 def get_dali_folds(database_path, vocal_path, lang="english", genre=None, dataset_name='dali', dummy=False):
     if dataset_name == 'dali':
         dataset = getDALI(database_path, vocal_path, lang, genre)
+        if dummy:
+            # dummy testing
+            dataset = dataset[:100]
     else:
-        dataset = getData(database_path, vocal_path)
+        dataset = getData(database_path, vocal_path, dummy)
     total_len = len(dataset)
     train_len = np.int(0.8 * total_len)
 
-    train_list = np.random.choice(dataset, train_len, replace=False)
-    val_list = [elem for elem in dataset if elem not in train_list]
+    # TODO: JUST TO CHOICE AUDIO NAME
+    dataset_indexs = list(range(total_len))
+    train_index_list = np.random.choice(dataset_indexs, train_len, replace=False)
+    val__index_list = [index for index in dataset_indexs if index not in train_index_list]
 
-    if dummy:
-        # dummy testing
-        train_list = train_list[:20]
-        val_list = val_list[:20]
+    train_list = dataset[train_index_list]
+    val_list = dataset[val__index_list]
 
     logging.debug(
         "First training song: " + str(train_list[0]["id"]) + " " + str(len(train_list[0]["words"])) + " lines")
