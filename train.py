@@ -98,7 +98,7 @@ def train(model, device, train_loader, criterion, optimizer, batch_size, model_t
         return train_loss / data_len, train_loss / data_len, None
 
 
-@hydra.main(version_base=None, config_path="config/train", config_name="csd_config")
+@hydra.main(version_base=None, config_path="config/train", config_name="config")
 def main(cfg: DictConfig):
     args = cfg
 
@@ -153,13 +153,13 @@ def main(cfg: DictConfig):
         dali_split = {"train": [], "val": []}  # h5 files already saved
     else:
         # call the DALI wrapper to get word-level annotations
-        dali_split = get_dali_folds(args.dataset.dataset_dir, args.dataset.sepa_dir, dataset_name=args.dataset.name,
+        dali_split = get_dali_folds(args.dataset.dataset_dir, args.dataset.sepa_dir,lang=args.dataset.lang, dataset_name=args.dataset.name,
                                     dummy=args.dummy)
 
     val_data = LyricsAlignDataset(dali_split, "val", args.sr, hparams['input_sample'], args.dataset.hdf_dir,
-                                  dummy=args.dummy, phones=args.dataset.phones)
+                                  dummy=args.dummy,data_type=args.dataset.data_type, phones=args.dataset.phones)
     train_data = LyricsAlignDataset(dali_split, "train", args.sr, hparams['input_sample'], args.dataset.hdf_dir,
-                                    dummy=args.dummy, phones=args.dataset.phones)
+                                    dummy=args.dummy,data_type=args.dataset.data_type, phones=args.dataset.phones)
 
     kwargs = {'num_workers': args.num_workers, 'pin_memory': True} if use_cuda else {}
     train_loader = data.DataLoader(dataset=train_data,

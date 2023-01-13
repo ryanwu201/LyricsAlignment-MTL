@@ -7,11 +7,12 @@ import string
 from tqdm import tqdm
 import logging
 
+from g2p_en import G2p as G2p_en
 import DALI as dali_code
 from utils import load, load_lyrics, gen_phone_gt, ToolFreq2Midi
 
-
-def getData(database_path, vocal_path, dummy):
+g2p_en = G2p_en()
+def getData(database_path, vocal_path, dummy, lang='english'):
     lyrics_path = os.path.join(database_path, 'txt')
     annot_path = os.path.join(database_path, 'csv')
     audio_path = os.path.join(database_path, 'audio')
@@ -41,7 +42,13 @@ def getData(database_path, vocal_path, dummy):
                 infos = [info.replace('\n', '').split(',') for info in infos[1:]]
                 for start, end, pitch, syllable in infos:
                     start, end, pitch = float(start), float(end), int(pitch)
-                    phonemes = syllable.split('_')
+                    # TODO: integration preprocessing
+                    if lang == 'english':
+                        out = g2p_en(syllable)
+                        phonemes = [phone if phone[-1] not in string.digits else phone[:-1] for phone in out if
+                                    phone[-1] in (string.ascii_letters + string.digits)]
+                    else:
+                        phonemes = syllable.split('_')
                     # notes
                     note = {"pitch": pitch, "time": (start, end)}
 
@@ -217,7 +224,7 @@ def get_dali_folds(database_path, vocal_path, lang="english", genre=None, datase
 
 
 class LyricsAlignDataset(Dataset):
-    def __init__(self, dataset, partition, sr, input_sample, hdf_dir, in_memory=False, dummy=False,
+    def __init__(self, dataset, partition, sr, input_sample, hdf_dir, in_memory=False, dummy=False,data_type='song',
                  phones=['AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY', 'F', 'G', 'HH',
                          'IH', 'IY', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P', 'R', 'S', 'SH', 'T', 'TH',
                          'UH', 'UW', 'V', 'W', 'Y', 'Z', 'ZH', ' ']):
@@ -233,7 +240,7 @@ class LyricsAlignDataset(Dataset):
         '''
 
         super(LyricsAlignDataset, self).__init__()
-
+        self.data_type = data_type
         self.phone2int = {phones[i]: i for i in range(len(phones))}
 
         self.hdf_dataset = None
@@ -312,20 +319,92 @@ class LyricsAlignDataset(Dataset):
             if f.attrs["sr"] != sr:
                 raise ValueError(
                     "Tried to load existing HDF file, but sampling rate is not as expected.")
-
+        # TODO: save audio names in train or val
         # Go through HDF and collect lengths of all audio files
         with h5py.File(self.hdf_file, "r") as f:
 
-            # length of song
-            lengths = [f[str(song_idx)].attrs["input_length"] for song_idx in range(len(f))]
+            self.length = len(f)
+            if self.data_type =='song':
+                # length of song
+                lengths = [f[str(song_idx)].attrs["input_length"] for song_idx in range(len(f))]
 
-            # Subtract input_size from lengths and divide by hop size to determine number of starting positions
-            lengths = [((l - input_sample) // self.hop) + 1 for l in lengths]
+                # Subtract input_size from lengths and divide by hop size to determine number of starting positions
+                lengths = [((l - input_sample) // self.hop) + 1 for l in lengths]
 
-        self.start_pos = SortedList(np.cumsum(lengths))
-        self.length = self.start_pos[-1]
+                self.start_pos = SortedList(np.cumsum(lengths))
+                self.length = self.start_pos[-1]
 
     def __getitem__(self, index):
+
+        if self.data_type == 'song':
+            audio, targets, seq, phone_seq, notes =  self.getitem_song(index)
+        else:
+            audio, targets, seq, phone_seq, notes =  self.getitem_speech(index)
+
+        return audio, targets, seq, phone_seq, notes
+
+    def getitem_speech(self, song_idx):
+
+        # open HDF5
+        if self.hdf_dataset is None:
+            driver = "core" if self.in_memory else None  # Load HDF5 fully into memory if desired
+            self.hdf_dataset = h5py.File(self.hdf_file, 'r', driver=driver)
+
+        # length of audio signal
+        audio_length = self.hdf_dataset[str(song_idx)].attrs["input_length"]
+        # number of words in this song
+        annot_num = self.hdf_dataset[str(song_idx)].attrs["annot_num"]
+
+        # determine where to start
+        start_pos = 0
+        end_pos = start_pos + self.input_sample
+
+        # padding
+        pad_front, pad_back = 0, 0
+        if self.input_sample > audio_length:
+            pad_front = (self.input_sample - audio_length) // 2 + 1
+            pad_back = pad_front
+
+        # read audio and zero padding
+        audio = self.hdf_dataset[str(song_idx)]["inputs"][0, :].astype(np.float32)
+        if pad_front > 0 or pad_back > 0:
+            audio = np.pad(audio, [(pad_front, pad_back)], mode="constant", constant_values=0.0)
+        audio = audio[start_pos:end_pos]
+
+
+        # find the lyrics within (start_target_pos, end_target_pos)
+        first_word_to_include = 0
+
+        last_word_to_include = annot_num - 1
+
+        targets = ""
+        phonemes_list = []
+        notes = [np.empty(shape=(0, 1), dtype=np.short), np.empty(shape=(0, 2))]
+        if first_word_to_include <= last_word_to_include:  # the window covers word[first:last+1]
+            # build lyrics target
+            lyrics = self.hdf_dataset[str(song_idx)]["lyrics"][
+                     first_word_to_include:last_word_to_include + 1]
+            lyrics_list = [s[0].decode() for s in list(lyrics)]
+            targets = " ".join(lyrics_list)
+            targets = " ".join(targets.split())
+
+            phonemes = self.hdf_dataset[str(song_idx)]["phonemes"][
+                       first_word_to_include:last_word_to_include + 1]
+            phonemes_list = self.convert_phone_list(phonemes)
+
+            # build melody target
+            notes[0] = self.hdf_dataset[str(song_idx)]["pitches"][
+                       first_word_to_include:last_word_to_include + 1]
+            notes[1] = self.hdf_dataset[str(song_idx)]["note_times"][
+                       first_word_to_include:last_word_to_include + 1,
+                       :]
+
+        seq = self.text2seq(targets)
+        phone_seq = self.phone2seq(phonemes_list)
+
+        return audio, targets, seq, phone_seq, notes
+
+    def getitem_song(self, index):
 
         # open HDF5
         if self.hdf_dataset is None:
@@ -561,7 +640,7 @@ class JamendoLyricsDataset(Dataset):
 
         # audio, (indices of the first characters/phonemes of the words, * of the lines),
         # (lyrics in characters/phonemes, song names, audio length in samples)
-        return chunks, (word_idx, line_idx), (lyrics, audio_name, audio_length,full_lyrics)
+        return chunks, (word_idx, line_idx), (lyrics, audio_name, audio_length, full_lyrics)
 
     def __len__(self):
         return self.length

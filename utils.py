@@ -5,8 +5,8 @@ import numpy as np
 import librosa
 import string
 import warnings
-from g2p_en import G2p
-
+from g2p_en import G2p as G2p_en
+g2p_en = G2p_en()
 from prettytable import PrettyTable
 
 
@@ -93,7 +93,7 @@ def write_wav(path, audio, sr):
 def gen_phone_gt(words, raw_lines, lang='english'):
     g2p = None
     if lang == 'english':
-        g2p = G2p()
+        g2p = g2p_en
     elif lang == 'korean':
         g2p = lambda word_: word_.split('_')
     else:

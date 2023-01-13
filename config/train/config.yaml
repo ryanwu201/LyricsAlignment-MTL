@@ -21,6 +21,8 @@ log_dir: ../lyricsalignment_mtl_output_dali_test/tensorboard_logs
 #Dataset
 dataset:
   name: dali
+  lang: english
+  data_type: song
   n_phone_class: 41
   n_pitch_class: 47
   phone_blank: 40

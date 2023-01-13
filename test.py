@@ -24,6 +24,7 @@ def predict_phoneme(args, model, test_data, device, model_type):
     model.eval()
 
     resolution = 256 / 22050 * 3
+    decoder = ctc_decoder(**args.ctc_decoder)
     wers, cers = 0, 0
     pred_transcripts = []
     with tqdm(total=len(test_data)) as pbar, torch.no_grad():
@@ -46,7 +47,6 @@ def predict_phoneme(args, model, test_data, device, model_type):
 
             all_outputs = F.log_softmax(all_outputs, dim=2)
 
-            decoder = ctc_decoder(**args.ctc_decoder)
             all_outputs = all_outputs.data.cpu()
             ctc_hypothesises = decoder(all_outputs)
 
