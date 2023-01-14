@@ -205,11 +205,10 @@ def get_dali_folds(database_path, vocal_path, lang="english", genre=None, datase
             # dummy testing
             dataset = dataset[:100]
     else:
-        dataset = getData(database_path, vocal_path, dummy)
+        dataset = getData(database_path, vocal_path, dummy,lang)
     total_len = len(dataset)
     train_len = np.int(0.8 * total_len)
 
-    # TODO: JUST TO CHOICE AUDIO NAME
     dataset_indexs = list(range(total_len))
     train_index_list = np.random.choice(dataset_indexs, train_len, replace=False)
     val__index_list = [index for index in dataset_indexs if index not in train_index_list]
@@ -245,6 +244,7 @@ class LyricsAlignDataset(Dataset):
 
         self.hdf_dataset = None
         os.makedirs(hdf_dir, exist_ok=True)
+        self.hdf_dir = hdf_dir
         if dummy == False:
             self.hdf_file = os.path.join(hdf_dir, partition + ".hdf5")
         else:
@@ -257,6 +257,8 @@ class LyricsAlignDataset(Dataset):
 
         # Check if HDF file exists already
         if not os.path.exists(self.hdf_file):
+            ids = []
+
             # Create folder if it did not exist before
             if not os.path.exists(hdf_dir):
                 os.makedirs(hdf_dir)
@@ -276,6 +278,8 @@ class LyricsAlignDataset(Dataset):
 
                     grp.attrs["audio_name"] = example["id"]
                     grp.attrs["input_length"] = y.shape[1]
+
+                    ids.append(example["id"])
 
                     # word level annotation
                     annot_num = len(example["words"])
@@ -314,12 +318,15 @@ class LyricsAlignDataset(Dataset):
                         phonemes_sample = phonemes_encode[i]
                         grp["phonemes"][i, :len(phonemes_sample)] = np.array(phonemes_sample)
 
+            # save audio names in train or val
+            with open(os.path.join(self.hdf_dir,f'{partition}.txt'),mode='wt') as f:
+                f.writelines('\n'.join(ids))
+                f.close()
         # In that case, check whether sr and channels are complying with the audio in the HDF file, otherwise raise error
         with h5py.File(self.hdf_file, "r", libver='latest', swmr=True) as f:
             if f.attrs["sr"] != sr:
                 raise ValueError(
                     "Tried to load existing HDF file, but sampling rate is not as expected.")
-        # TODO: save audio names in train or val
         # Go through HDF and collect lengths of all audio files
         with h5py.File(self.hdf_file, "r") as f:
 
