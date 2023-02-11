@@ -5,8 +5,8 @@ import numpy as np
 import librosa
 import string
 import warnings
-from g2p_en import G2p
-
+from g2p_en import G2p as G2p_en
+g2p_en = G2p_en()
 from prettytable import PrettyTable
 
 
@@ -93,7 +93,7 @@ def write_wav(path, audio, sr):
 def gen_phone_gt(words, raw_lines, lang='english'):
     g2p = None
     if lang == 'english':
-        g2p = G2p()
+        g2p = g2p_en
     elif lang == 'korean':
         g2p = lambda word_: word_.split('_')
     else:
@@ -529,3 +529,40 @@ def show_table(field_names, table_content):
     for content in table_content:
         arg_table.add_row([*content])
     print('\n' + str(arg_table))
+
+
+def create_jamendolyrics_style_data(dataset_song, sava_path):
+    """
+    for eval
+    """
+    audio_name = dataset_song['id']
+
+    n_words = np.array([len(line['text'].split(' ')) for line in dataset_song["lines"]])
+    end_word_indexes = np.cumsum(n_words) - 1
+    words = [
+        [sample['time'][0],
+         'nan' if i not in end_word_indexes else dataset_song["lines"][np.where(end_word_indexes == i)[0][0]]['time'][1]]
+        for i, sample in enumerate(dataset_song["words"])]
+
+    lyrics_path = os.path.join(sava_path, 'lyrics')
+    annotations_lines = os.path.join(sava_path, 'annotations', 'lines')
+    annotations_words = os.path.join(sava_path, 'annotations', 'words')
+
+    os.makedirs(lyrics_path, exist_ok=True)
+    os.makedirs(annotations_lines, exist_ok=True)
+    os.makedirs(annotations_words, exist_ok=True)
+
+    with open(os.path.join(lyrics_path, f'{audio_name}.words.txt'), 'w') as f:
+        f.writelines([sample["text"] + '\n' for sample in dataset_song["words"]])
+        f.close()
+    with open(os.path.join(lyrics_path, f'{audio_name}.raw.txt'), 'w') as f:
+        f.writelines([line["text"] + '\n' for line in dataset_song["lines"]])
+        f.close()
+    with open(os.path.join(annotations_lines, f'{audio_name}.csv'), 'w') as f:
+        f.write('start_time,end_time,lyrics_line\n')
+        f.writelines([f'{line["time"][0]},{line["time"][1]},{line["text"]}\n' for line in dataset_song["lines"]])
+        f.close()
+    with open(os.path.join(annotations_words, f'{audio_name}.csv'), 'w') as f:
+        f.write('word_start,line_end\n')
+        f.writelines([f'{mintime},{maxtime}\n' for mintime, maxtime in words])
+        f.close()

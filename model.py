@@ -5,6 +5,7 @@ import torchaudio
 import warnings
 
 from utils import notes_to_pc
+import numpy as np
 
 # following FFT parameters are designed for a 22.5k sampling rate
 sr = 22050
@@ -18,7 +19,7 @@ with warnings.catch_warnings():
     )
 
 
-def data_processing(data):
+def data_processing(data, padding_value=0):
     spectrograms = []
     phones = []
     pcs = []
@@ -43,9 +44,9 @@ def data_processing(data):
         phone_lengths.append(len(phone))
 
     spectrograms = nn.utils.rnn.pad_sequence(spectrograms, batch_first=True).unsqueeze(1).transpose(2, 3)
-    phones = nn.utils.rnn.pad_sequence(phones, batch_first=True)
+    phones = nn.utils.rnn.pad_sequence(phones, batch_first=True, padding_value=padding_value)
 
-    return spectrograms, phones, input_lengths, phone_lengths, torch.LongTensor(pcs)
+    return spectrograms, phones, input_lengths, phone_lengths, torch.LongTensor(np.array(pcs))
 
 
 class CNNLayerNorm(nn.Module):

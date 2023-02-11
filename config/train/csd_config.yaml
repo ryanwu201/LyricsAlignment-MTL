@@ -21,6 +21,8 @@ log_dir: ../lyricsalignment_mtl_output_csd/tensorboard_logs
 #Dataset
 dataset:
   name: csd
+  lang: korean
+  data_type: song
   n_phone_class: 34
   n_pitch_class: 47
   phone_blank: 33
